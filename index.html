@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PokéColeção TCG</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topo">
+    <button id="btnMenu" class="icone" aria-label="Abrir coleções">☰</button>
+    <h1>PokéColeção</h1>
+    <div class="total" id="totalGeral">0 cartas</div>
+    <button id="btnConfig" class="icone" aria-label="Configurações">⚙</button>
+  </header>
+
+  <div class="layout">
+    <aside id="lateral" class="lateral">
+      <input id="buscaSet" type="search" placeholder="Filtrar coleções…">
+      <div id="listaSeries" class="lista-series">Carregando coleções…</div>
+    </aside>
+
+    <main class="principal">
+      <section id="cabecalhoSet" class="cabecalho-set">
+        <div class="boas-vindas">
+          <h2>Bem-vindo, Mestre!</h2>
+          <p>Escolha uma coleção ao lado ou procure uma carta pelo nome.</p>
+        </div>
+      </section>
+
+      <div class="barra">
+        <input id="buscaCarta" type="search" placeholder="Buscar carta (ex: Pikachu) — Enter busca em todas as coleções">
+        <div class="filtros" role="group" aria-label="Filtro">
+          <button data-filtro="todas" class="ativo">Todas</button>
+          <button data-filtro="tenho">Tenho</button>
+          <button data-filtro="faltam">Faltam</button>
+        </div>
+      </div>
+
+      <div id="grade" class="grade"></div>
+    </main>
+  </div>
+
+  <dialog id="modalCarta" class="modal">
+    <button class="fechar" data-fechar aria-label="Fechar">✕</button>
+    <img id="mcImg" alt="">
+    <h3 id="mcNome"></h3>
+    <p id="mcInfo" class="sub"></p>
+    <div class="qtd">
+      <button id="mcMenos" aria-label="Diminuir">−</button>
+      <span id="mcQtd">0</span>
+      <button id="mcMais" aria-label="Aumentar">+</button>
+    </div>
+  </dialog>
+
+  <dialog id="modalConfig" class="modal">
+    <button class="fechar" data-fechar aria-label="Fechar">✕</button>
+    <h3>Configurações</h3>
+    <label>Idioma das cartas
+      <select id="cfgIdioma">
+        <option value="pt">Português</option>
+        <option value="en">Inglês</option>
+      </select>
+    </label>
+    <h4>Backup da coleção</h4>
+    <p class="sub">Sua coleção fica salva neste navegador. Exporte de vez em quando para não perder nada.</p>
+    <div class="botoes">
+      <button id="btnExportar">⬇ Exportar (.json)</button>
+      <label class="botao-arquivo">⬆ Importar
+        <input id="arqImportar" type="file" accept="application/json,.json" hidden>
+      </label>
+    </div>
+    <div class="botoes">
+      <button id="btnLimparCache">Recarregar catálogo</button>
+    </div>
+  </dialog>
+
+  <div id="aviso" class="aviso" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
