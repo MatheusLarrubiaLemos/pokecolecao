@@ -116,6 +116,8 @@ function definirQtd(id, qtd) {
   atualizarProgresso();
 }
 
+function vibrar(ms) { try { navigator.vibrate?.(ms); } catch { /* sem vibração */ } }
+
 function alternar(id) { definirQtd(id, qtdDe(id) > 0 ? 0 : 1); }
 
 function contarDoSet(setId) {
@@ -175,7 +177,7 @@ function desenharSeries() {
 
 // ---------- Abrir um set ----------
 async function abrirSet(setId) {
-  $('#lateral').classList.remove('aberta');
+  fecharMenu();
   estado.modo = 'set';
   $('#buscaCarta').value = '';
   $('#grade').innerHTML = '<div class="carregando">Carregando cartas…</div>';
@@ -188,6 +190,7 @@ async function abrirSet(setId) {
   location.hash = setId;
   desenharCabecalhoSet();
   desenharGrade();
+  window.scrollTo({ top: 0 });
   document.querySelectorAll('.item-set').forEach((b) => b.classList.toggle('ativo', b.dataset.set === setId));
 }
 
@@ -326,7 +329,25 @@ function criarCarta(c) {
   leg.textContent = `#${c.localId ?? ''} ${c.name}`;
 
   el.append(moldura, selo, info, leg);
-  el.onclick = () => alternar(c.id);
+  // Segurar o dedo (ou o clique) por meio segundo abre os detalhes
+  let tempoSegurar, segurou = false, inicio = null;
+  const cancelar = () => clearTimeout(tempoSegurar);
+  el.onpointerdown = (e) => {
+    if (e.button > 0) return;
+    segurou = false; inicio = [e.clientX, e.clientY];
+    tempoSegurar = setTimeout(() => { segurou = true; vibrar(30); abrirModalCarta(c); }, 500);
+  };
+  el.onpointermove = (e) => {
+    if (inicio && Math.hypot(e.clientX - inicio[0], e.clientY - inicio[1]) > 10) cancelar();
+  };
+  el.onpointerup = el.onpointerleave = el.onpointercancel = cancelar;
+  el.addEventListener('touchend', (e) => { if (segurou) e.preventDefault(); });
+  el.oncontextmenu = (e) => e.preventDefault();
+  el.onclick = () => {
+    if (segurou) { segurou = false; return; }
+    vibrar(10);
+    alternar(c.id);
+  };
   el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); alternar(c.id); } };
   return el;
 }
@@ -352,6 +373,7 @@ function abrirModalCarta(c) {
   $('#mcNome').textContent = c.name;
   $('#mcInfo').textContent = `${c.id}`;
   $('#mcQtd').textContent = qtdDe(c.id);
+  $('#modalCarta').abertoEm = Date.now();
   $('#modalCarta').showModal();
 }
 $('#mcMais').onclick = () => { const c = estado.cartaModal; definirQtd(c.id, qtdDe(c.id) + 1); $('#mcQtd').textContent = qtdDe(c.id); };
@@ -360,7 +382,10 @@ $('#mcMenos').onclick = () => { const c = estado.cartaModal; definirQtd(c.id, qt
 // ---------- Configurações / backup ----------
 $('#btnConfig').onclick = () => { $('#cfgIdioma').value = estado.config.idioma; $('#modalConfig').showModal(); };
 document.querySelectorAll('[data-fechar]').forEach((b) => (b.onclick = () => b.closest('dialog').close()));
-document.querySelectorAll('dialog').forEach((d) => d.addEventListener('click', (e) => { if (e.target === d) d.close(); }));
+// Toque no fundo escuro fecha (ignorando o "clique" que sobra ao soltar o dedo depois de segurar a carta)
+document.querySelectorAll('dialog').forEach((d) => d.addEventListener('click', (e) => {
+  if (e.target === d && Date.now() - (d.abertoEm ?? 0) > 400) d.close();
+}));
 
 $('#cfgIdioma').onchange = (e) => {
   estado.config.idioma = e.target.value;
@@ -409,7 +434,47 @@ $('#arqImportar').onchange = async (e) => {
 $('#btnLimparCache').onclick = async () => { await cache.limpar(); location.reload(); };
 
 // ---------- Eventos gerais ----------
-$('#btnMenu').onclick = () => $('#lateral').classList.toggle('aberta');
+function abrirMenu() {
+  $('#lateral').classList.add('aberta');
+  $('#veu').hidden = false;
+  $('#btnMenu').setAttribute('aria-expanded', 'true');
+  if (celular.matches) document.body.classList.add('travado');
+}
+function fecharMenu() {
+  $('#lateral').classList.remove('aberta');
+  $('#veu').hidden = true;
+  $('#btnMenu').setAttribute('aria-expanded', 'false');
+  document.body.classList.remove('travado');
+}
+const celular = matchMedia('(max-width: 760px)');
+$('#btnMenu').onclick = () => ($('#lateral').classList.contains('aberta') ? fecharMenu() : abrirMenu());
+document.querySelectorAll('[data-abrir-menu]').forEach((b) => (b.onclick = abrirMenu));
+$('#veu').onclick = fecharMenu;
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') fecharMenu(); });
+celular.addEventListener('change', () => { if (!celular.matches) fecharMenu(); ajustarTextos(); });
+
+// Arrastar a gaveta para a esquerda fecha
+(() => {
+  let x0 = null;
+  const lat = $('#lateral');
+  lat.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; }, { passive: true });
+  lat.addEventListener('touchend', (e) => {
+    if (x0 !== null && x0 - e.changedTouches[0].clientX > 70) fecharMenu();
+    x0 = null;
+  });
+})();
+
+// Textos menores no celular
+function ajustarTextos() {
+  $('#buscaCarta').placeholder = celular.matches
+    ? 'Buscar carta (ex: Pikachu)…'
+    : 'Buscar carta (ex: Pikachu) — Enter busca em todas as coleções';
+}
+ajustarTextos();
+
+// Botão "voltar ao topo"
+window.addEventListener('scroll', () => { $('#btnTopo').hidden = window.scrollY < 800; }, { passive: true });
+$('#btnTopo').onclick = () => window.scrollTo({ top: 0, behavior: 'smooth' });
 $('#buscaSet').oninput = desenharSeries;
 
 let tempoBusca;
@@ -422,7 +487,11 @@ $('#buscaCarta').oninput = (e) => {
 
 $('#buscaCarta').onkeydown = (e) => {
   const termo = e.target.value.trim();
-  if (e.key === 'Enter' && termo.length >= 2) { clearTimeout(tempoBusca); buscarGlobal(termo); }
+  if (e.key === 'Enter' && termo.length >= 2) {
+    clearTimeout(tempoBusca);
+    if (celular.matches) e.target.blur(); // fecha o teclado do celular
+    buscarGlobal(termo);
+  }
 };
 
 document.querySelectorAll('.filtros button').forEach((b) => {

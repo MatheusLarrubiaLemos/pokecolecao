@@ -8,7 +8,14 @@ Site simples para controlar a sua coleção de cartas Pokémon TCG.
 - Filtros **Todas / Tenho / Faltam**, busca por nome, progresso de cada coleção.
 - A coleção fica salva **no seu navegador**. Use ⚙ → **Exportar** para fazer backup (.json) e **Importar** para levar para outro aparelho.
 
-Não precisa de servidor, banco de dados nem instalar nada: são só 3 arquivos (`index.html`, `style.css`, `app.js`).
+## No celular
+
+- Toque em **☰** para abrir a lista de coleções (toque fora ou arraste para a esquerda para fechar).
+- **Toque** na carta para marcar/desmarcar; **segure o dedo** nela para ver a imagem grande e a quantidade.
+- A busca e os filtros ficam presos no topo enquanto você rola; o botão **↑** volta ao início.
+- Dá para **instalar como app**: no Android (Chrome) use ⋮ → *Adicionar à tela inicial*; no iPhone (Safari) use Compartilhar → *Adicionar à Tela de Início*.
+
+Não precisa de servidor, banco de dados nem instalar nada: são só 3 arquivos principais (`index.html`, `style.css`, `app.js`), mais o `manifest.webmanifest` e a pasta `icones/` para instalar no celular.
 
 ## Rodar no seu PC
 
