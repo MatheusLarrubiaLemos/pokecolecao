@@ -153,6 +153,7 @@ input[type="search"], select {
 .qtd { display: flex; align-items: center; justify-content: center; gap: 18px; margin-top: 10px; }
 .qtd button { font-size: 1.4rem; width: 48px; height: 48px; border-radius: 50%; }
 .qtd span { font-size: 1.6rem; font-weight: 700; min-width: 2ch; text-align: center; }
+.versao { text-align: center; font-size: .75rem; margin-top: 14px; }
 .botoes { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
 .botao-arquivo { display: inline-block; margin: 0 !important; border: 1px solid var(--borda); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
 
@@ -163,17 +164,111 @@ input[type="search"], select {
   box-shadow: var(--sombra);
 }
 
+/* Auxiliares */
+.so-celular { display: none; }
+.veu { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 15; }
+.veu[hidden] { display: none; }
+.botao-principal { background: var(--destaque); color: #fff; border: none; font-weight: 600; padding: 12px 18px; border-radius: 12px; margin-top: 8px; }
+.btn-topo {
+  position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 12;
+  width: 48px; height: 48px; border-radius: 50%; padding: 0;
+  font-size: 1.3rem; box-shadow: var(--sombra);
+}
+.btn-topo[hidden] { display: none; }
+button, .carta, .item-set { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+
 /* Celular */
 @media (max-width: 760px) {
+  .so-celular { display: block; }
+  .so-pc { display: none; }
+
+  /* Topo compacto, respeitando o "notch" */
+  .topo {
+    padding: calc(6px + env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) 6px max(10px, env(safe-area-inset-left));
+    gap: 6px; min-height: 52px;
+  }
+  .topo h1 { font-size: 1.05rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .topo .icone { font-size: 1.4rem; min-width: 44px; min-height: 44px; }
+  .total { font-size: .8rem; padding: 3px 9px; white-space: nowrap; }
   #btnMenu { display: block; }
+
+  .layout { min-height: calc(100dvh - 52px); }
+
+  /* Gaveta de coleções */
   .lateral {
-    position: fixed; left: 0; top: 52px; z-index: 20;
-    transform: translateX(-100%); transition: transform .25s;
-    box-shadow: var(--sombra);
-    width: 85vw;
+    position: fixed; left: 0; top: 0; bottom: 0; z-index: 20;
+    width: min(85vw, 340px); height: 100dvh;
+    padding: calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+    transform: translateX(-100%); transition: transform .25s ease;
+    box-shadow: 4px 0 20px rgba(0,0,0,.3);
+    overscroll-behavior: contain;
   }
   .lateral.aberta { transform: none; }
-  .principal { padding: 12px 16px; }
-  .grade { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; }
-  .acoes-set { margin-left: 0; }
+  .item-set { padding: 10px 6px; min-height: 44px; }
+  .item-set .nome { font-size: .95rem; }
+  body.travado { overflow: hidden; }
+
+  /* Evita o zoom automático do iPhone ao tocar nos campos */
+  input[type="search"], select { font-size: 16px; padding: 10px 12px; }
+
+  .principal { padding: 10px max(10px, env(safe-area-inset-right)) calc(80px + env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); }
+
+  /* Cabeçalho do set compacto */
+  .cabecalho-set { gap: 10px; margin-bottom: 8px; }
+  .cabecalho-set img.logo { max-height: 40px; max-width: 110px; }
+  .cabecalho-set h2 { font-size: 1.15rem; }
+  .cabecalho-set .sub { font-size: .82rem; margin: 2px 0; }
+  .progresso { width: 100%; }
+  .cabecalho-set > div:not(.acoes-set) { flex: 1; min-width: 0; }
+  .acoes-set { margin-left: 0; width: 100%; }
+  .acoes-set button { flex: 1; padding: 8px 6px; font-size: .85rem; }
+  .boas-vindas h2 { font-size: 1.3rem; }
+
+  /* Busca + filtros grudados no topo ao rolar */
+  .barra {
+    position: sticky; top: calc(52px + env(safe-area-inset-top)); z-index: 5;
+    background: var(--fundo);
+    margin: 0 -10px 10px; padding: 8px 10px;
+    gap: 8px;
+    border-bottom: 1px solid var(--borda);
+  }
+  .barra input { min-width: 0; width: 100%; flex-basis: 100%; }
+  .filtros { width: 100%; background: var(--painel); border: 1px solid var(--borda); border-radius: 10px; padding: 3px; }
+  .filtros button { flex: 1; border: none; padding: 8px 0; border-radius: 8px; }
+
+  /* Grade: 3 cartas por linha */
+  .grade { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .carta { transition: transform .1s; }
+  .carta:active { transform: scale(.96); }
+  .carta .info { width: 30px; height: 30px; top: 4px; right: 4px; font-size: .85rem; }
+  .carta .selo { top: 4px; left: 4px; width: 24px; height: 24px; font-size: .75rem; }
+  .carta .legenda { font-size: .72rem; }
+  .carta.tenho .moldura { outline-width: 2px; }
+  .carta img { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  .carta { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+
+  /* Modais viram "folha" que sobe de baixo */
+  .modal {
+    margin: auto 0 0; max-width: 100%; width: 100%;
+    border-radius: 18px 18px 0 0;
+    max-height: 94dvh; overflow-y: auto;
+    padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+    animation: subir .22s ease-out;
+  }
+  .modal img { max-height: 58dvh; object-fit: contain; }
+  .modal .fechar { width: 40px; height: 40px; top: 8px; right: 8px; font-size: 1.1rem; background: var(--fundo); border-radius: 50%; z-index: 1; }
+  .modal h3 { margin: 10px 0 2px; }
+  .qtd button { width: 56px; height: 56px; }
+  .botoes button, .botao-arquivo { flex: 1; text-align: center; padding: 12px; }
+  .dica { text-align: center; font-size: .78rem; }
+
+  .aviso { bottom: calc(20px + env(safe-area-inset-bottom)); max-width: calc(100vw - 32px); text-align: center; }
+}
+@media (max-width: 340px) {
+  .grade { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .total { display: none; }
+}
+@keyframes subir { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .modal, .lateral, .carta { animation: none; transition: none; }
 }
