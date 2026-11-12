@@ -4,6 +4,7 @@
  */
 'use strict';
 
+const VERSAO = '1.1.0'; // atualize também o CHANGELOG.md
 const API = 'https://api.tcgdex.net/v2';
 const CHAVE_COLECAO = 'pokecolecao:colecao';
 const CHAVE_CONFIG = 'pokecolecao:config';
@@ -504,6 +505,7 @@ document.querySelectorAll('.filtros button').forEach((b) => {
 });
 
 // ---------- Início ----------
+$('#txtVersao').textContent = `PokéColeção v${VERSAO}`;
 atualizarTotal();
 carregarSeries().then(() => {
   const setNoLink = decodeURIComponent(location.hash.slice(1));

@@ -8,4 +8,5 @@ Projeto: PokéColeção TCG — site estático (sem build) para marcar cartas Po
 - Coleção: `localStorage['pokecolecao:colecao']` = `{ versao: 1, cartas: { [idCarta]: { qtd, set } } }`. Exportar/importar em JSON.
 - Cache do catálogo em IndexedDB (`pokecolecao-cache`), validade 7 dias.
 - Textos da interface e nomes de variáveis em português. O usuário é chamado de "Mestre".
+- Versão: constante `VERSAO` no `app.js` (aparece em ⚙). A cada mudança, suba a versão (semver) e registre no `CHANGELOG.md`, em português. Títulos de PR e commits em português, com a versão (ex: "v1.2.0 — …").
 - Depois de mudar algo, abra o `index.html` no navegador para testar e faça commit + push para atualizar o site.

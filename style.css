@@ -153,6 +153,7 @@ input[type="search"], select {
 .qtd { display: flex; align-items: center; justify-content: center; gap: 18px; margin-top: 10px; }
 .qtd button { font-size: 1.4rem; width: 48px; height: 48px; border-radius: 50%; }
 .qtd span { font-size: 1.6rem; font-weight: 700; min-width: 2ch; text-align: center; }
+.versao { text-align: center; font-size: .75rem; margin-top: 14px; }
 .botoes { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
 .botao-arquivo { display: inline-block; margin: 0 !important; border: 1px solid var(--borda); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
 
