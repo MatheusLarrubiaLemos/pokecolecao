@@ -8,6 +8,12 @@ Site simples para controlar a sua coleção de cartas Pokémon TCG.
 - Filtros **Todas / Tenho / Faltam**, busca por nome, progresso de cada coleção.
 - A coleção fica salva **no seu navegador**. Use ⚙ → **Exportar** para fazer backup (.json) e **Importar** para levar para outro aparelho.
 
+## Reconhecer por foto 📷
+
+- Toque em **📷** no topo e tire foto da carta (em pé, inteira, com boa luz) — ou escolha várias fotos de uma vez.
+- O site lê o nome e o número impresso (ex: `025/198`) e marca a carta sozinho. Se ficar em dúvida, mostra opções para você escolher; dá para desfazer.
+- Tudo acontece no seu aparelho (a foto não é enviada a nenhum servidor). Na primeira vez baixa o leitor de texto (~5 MB).
+
 ## No celular
 
 - Toque em **☰** para abrir a lista de coleções (toque fora ou arraste para a esquerda para fechar).

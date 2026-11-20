@@ -2,6 +2,14 @@
 
 A versão atual aparece em ⚙ Configurações, no rodapé.
 
+## v1.2.0 — Reconhecer cartas por foto (20/11/2026)
+
+- Botão **📷** no topo: tire foto da carta (ou escolha várias fotos da galeria) e eu **reconheço e marco sozinho**.
+- Lê o **nome** e o **número impresso** (ex: `025/198`, `TG05/TG30`) direto no navegador, sem enviar a foto para lugar nenhum.
+- Quando tem certeza, marca (+1 na quantidade) com botão **↶ Desfazer**; quando fica em dúvida, mostra as cartas parecidas para o Mestre escolher.
+- Opção "Marcar sozinho quando tiver certeza" pode ser desligada para sempre confirmar.
+- O leitor de texto (~5 MB) só é baixado na primeira vez que a câmera é usada.
+
 ## v1.1.0 — Versão para celular (12/11/2026)
 
 - **Gaveta de coleções:** o ☰ abre a lista com fundo escurecido; toque fora ou arraste para a esquerda para fechar.

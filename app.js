@@ -4,7 +4,7 @@
  */
 'use strict';
 
-const VERSAO = '1.1.0'; // atualize também o CHANGELOG.md
+const VERSAO = '1.2.0'; // atualize também o CHANGELOG.md
 const API = 'https://api.tcgdex.net/v2';
 const CHAVE_COLECAO = 'pokecolecao:colecao';
 const CHAVE_CONFIG = 'pokecolecao:config';
@@ -379,6 +379,301 @@ function abrirModalCarta(c) {
 }
 $('#mcMais').onclick = () => { const c = estado.cartaModal; definirQtd(c.id, qtdDe(c.id) + 1); $('#mcQtd').textContent = qtdDe(c.id); };
 $('#mcMenos').onclick = () => { const c = estado.cartaModal; definirQtd(c.id, qtdDe(c.id) - 1); $('#mcQtd').textContent = qtdDe(c.id); };
+
+// ---------- Reconhecer cartas por foto ----------
+// OCR no próprio navegador (Tesseract.js, carregado só quando o Mestre usa a câmera).
+// Lê o nome (topo da carta) e o número impresso (ex: "025/198", "TG05/TG30") e cruza com o catálogo.
+const TESSERACT_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+const PALAVRAS_IGNORADAS = new Set(['basico', 'basic', 'estagio', 'stage', 'evolui', 'evolves', 'from', 'pokemon',
+  'treinador', 'trainer', 'item', 'apoiador', 'supporter', 'estadio', 'stadium', 'energia', 'energy', 'ferramenta',
+  'tool', 'the', 'ex', 'gx', 'vmax', 'vstar', 'de', 'do', 'da', 'and']);
+
+let ocrPromessa = null;
+let aoProgredirOCR = null;
+function prepararOCR() {
+  return ocrPromessa ??= (async () => {
+    if (!window.Tesseract) {
+      await new Promise((ok, erro) => {
+        const s = document.createElement('script');
+        s.src = TESSERACT_URL; s.onload = ok;
+        s.onerror = () => erro(new Error('Não consegui baixar o leitor de texto.'));
+        document.head.appendChild(s);
+      });
+    }
+    const worker = await Tesseract.createWorker('eng', 1, {
+      logger: (m) => { if (m.status && m.progress < 1 && !m.status.startsWith('recognizing')) aoProgredirOCR?.(m); },
+    });
+    await worker.setParameters({ tessedit_pageseg_mode: '11' }); // texto espalhado (cartas têm texto em todo canto)
+    return worker;
+  })().catch((e) => { ocrPromessa = null; throw e; });
+}
+
+// Normaliza: minúsculas, sem acento, só letras/números/espaço
+function normalizar(t) {
+  return (t ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function distancia(a, b) {
+  if (a === b) return 0;
+  let ant = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const atual = [i];
+    for (let j = 1; j <= b.length; j++) {
+      atual[j] = Math.min(ant[j] + 1, atual[j - 1] + 1, ant[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    ant = atual;
+  }
+  return ant[b.length];
+}
+function parecido(a, b) { return a && b ? 1 - distancia(a, b) / Math.max(a.length, b.length) : 0; }
+
+// Quão bem o nome da carta aparece no texto lido (0 a 1), comparando com "janelas" de palavras
+function semelhancaNome(nome, palavrasTexto) {
+  const alvo = normalizar(nome);
+  const n = alvo.split(' ').length;
+  let melhor = 0;
+  for (let tam = Math.max(1, n - 1); tam <= n + 1; tam++) {
+    for (let i = 0; i + tam <= palavrasTexto.length; i++) {
+      const janela = palavrasTexto.slice(i, i + tam);
+      melhor = Math.max(melhor, parecido(alvo, janela.join(' ')), parecido(alvo.replace(/ /g, ''), janela.join('')));
+      if (melhor === 1) return 1;
+    }
+  }
+  return melhor;
+}
+
+// "025" -> "25", "tg05" -> "TG5", "SV-P 012" -> "SVP12"
+function normalizarNumero(t) {
+  const m = String(t ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '').match(/^([A-Z]*)0*(\d+)$/);
+  return m ? m[1] + m[2] : String(t ?? '').toUpperCase();
+}
+
+// Procura "025/198", "TG05/TG30", "GG01/GG70"… (o OCR às vezes troca "/" por "|", "l", "I" ou "7")
+function lerNumero(texto) {
+  const t = texto.toUpperCase().replace(/[Oo](?=\d)|(?<=\d)[Oo]/g, '0');
+  const achados = [];
+  const re = /(?:^|[^A-Z0-9])([A-Z]{0,2}\d{1,3})\s*[\/|\\lI]\s*([A-Z]{0,2}\d{2,3})(?![0-9])/g;
+  for (const m of t.matchAll(re)) {
+    const numero = normalizarNumero(m[1]);
+    const total = parseInt(m[2].replace(/^[A-Z]+/, ''), 10);
+    const n = parseInt(numero.replace(/^[A-Z]+/, ''), 10);
+    if (total >= 10 && total <= 400 && n >= 1 && (n <= total + 150)) achados.push({ numero, total });
+  }
+  return achados;
+}
+
+// Recorta um pedaço da foto, ampliando e em tons de cinza com contraste esticado
+function recortar(bitmap, [x, y, w, h], larguraAlvo) {
+  const sx = x * bitmap.width, sy = y * bitmap.height, sw = w * bitmap.width, sh = h * bitmap.height;
+  const escala = Math.min(3, larguraAlvo / sw);
+  const cv = document.createElement('canvas');
+  cv.width = Math.round(sw * escala); cv.height = Math.round(sh * escala);
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
+  const img = ctx.getImageData(0, 0, cv.width, cv.height);
+  const d = img.data;
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < d.length; i += 4) {
+    const g = (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114) | 0;
+    d[i] = g; hist[g]++;
+  }
+  // estica o contraste ignorando 1% dos extremos
+  const corte = (d.length / 4) * 0.01;
+  let lo = 0, hi = 255, soma = 0;
+  while (lo < 255 && (soma += hist[lo]) < corte) lo++;
+  soma = 0;
+  while (hi > 0 && (soma += hist[hi]) < corte) hi--;
+  const fator = hi > lo ? 255 / (hi - lo) : 1;
+  for (let i = 0; i < d.length; i += 4) {
+    const g = Math.max(0, Math.min(255, (d[i] - lo) * fator));
+    d[i] = d[i + 1] = d[i + 2] = g;
+  }
+  ctx.putImageData(img, 0, 0);
+  return cv;
+}
+
+async function lerCarta(worker, arquivo) {
+  const bitmap = await createImageBitmap(arquivo);
+  const ler = async (area, largura) => (await worker.recognize(recortar(bitmap, area, largura))).data.text;
+  const textoTopo = await ler([0, 0, 1, 0.22], 1400);       // nome
+  const textoInteiro = await ler([0, 0, 1, 1], 1800);       // tudo
+  let numeros = lerNumero(textoInteiro);
+  if (!numeros.length) numeros = lerNumero(await ler([0, 0.82, 1, 0.18], 2000)); // rodapé ampliado
+  bitmap.close?.();
+  return { textoTopo, textoInteiro, numeros };
+}
+
+function infoDosSets() {
+  const porId = new Map(), porTotal = new Map();
+  for (const serie of estado.series) for (const s of serie.sets) {
+    porId.set(s.id, { ...s, serie: serie.name });
+    const t = s.cardCount?.official;
+    if (t) { if (!porTotal.has(t)) porTotal.set(t, []); porTotal.get(t).push(s.id); }
+  }
+  return { porId, porTotal };
+}
+
+// Junta candidatas pelo número impresso e pelo nome, e dá uma nota para cada
+async function acharCandidatas(leitura) {
+  const { porId, porTotal } = infoDosSets();
+  const palavrasTopo = normalizar(leitura.textoTopo).split(' ').filter(Boolean);
+  const palavrasTudo = normalizar(leitura.textoTopo + ' ' + leitura.textoInteiro).split(' ').filter(Boolean);
+  const candidatas = new Map();
+  const add = (c) => { if (c?.id && !candidatas.has(c.id)) candidatas.set(c.id, c); };
+
+  // 1) Pelo número: sets com esse total impresso, carta com esse número
+  for (const { numero, total } of leitura.numeros.slice(0, 3)) {
+    for (const setId of (porTotal.get(total) ?? []).slice(0, 15)) {
+      const set = await api(`/sets/${setId}`).catch(() => null);
+      add(set?.cards?.find((c) => normalizarNumero(c.localId) === numero));
+    }
+  }
+  // 2) Pelo nome: as palavras mais longas do topo da carta
+  const termos = [...new Set(palavrasTopo.filter((p) => p.length >= 4 && !/\d/.test(p) && !PALAVRAS_IGNORADAS.has(p)))]
+    .sort((a, b) => b.length - a.length).slice(0, 2);
+  for (const termo of termos) {
+    const res = await api(`/cards?name=${encodeURIComponent(termo)}`).catch(() => []);
+    if (Array.isArray(res)) res.slice(0, 400).forEach(add);
+  }
+
+  const notas = [...candidatas.values()].map((c) => {
+    const set = porId.get(setDaCarta(c.id));
+    const nome = Math.max(semelhancaNome(c.name, palavrasTopo), semelhancaNome(c.name, palavrasTudo) * 0.9);
+    const num = leitura.numeros.find((n) => n.numero === normalizarNumero(c.localId));
+    const bateNumero = !!num;
+    const bateTotal = !!num && set?.cardCount?.official === num.total;
+    return { carta: c, set, nome, bateNumero, bateTotal, nota: nome * 0.5 + (bateNumero ? 0.3 : 0) + (bateTotal ? 0.2 : 0) };
+  });
+  // Lançamentos mais novos primeiro em caso de empate
+  const ordem = [...porId.keys()];
+  notas.sort((a, b) => b.nota - a.nota || ordem.indexOf(setDaCarta(b.carta.id)) - ordem.indexOf(setDaCarta(a.carta.id)));
+  return notas.filter((n) => n.nota >= 0.35).slice(0, 8);
+}
+
+function temCerteza(notas) {
+  const [a, b] = notas;
+  if (!a) return false;
+  const folga = !b || a.nota - b.nota >= 0.15;
+  return folga && a.nome >= 0.6 && ((a.bateNumero && a.bateTotal) || (a.bateNumero && a.nome >= 0.85));
+}
+
+function descreverCarta(n) {
+  return `${n.carta.name} · #${n.carta.localId}${n.set ? ` · ${n.set.name}` : ''}`;
+}
+
+function linhaResultado(arquivo) {
+  const el = document.createElement('div');
+  el.className = 'foto-item';
+  const miniatura = document.createElement('img');
+  miniatura.className = 'foto-mini';
+  miniatura.src = URL.createObjectURL(arquivo);
+  miniatura.alt = 'Sua foto';
+  miniatura.onload = () => URL.revokeObjectURL(miniatura.src);
+  const corpo = document.createElement('div');
+  corpo.className = 'foto-corpo';
+  corpo.innerHTML = '<p class="sub">Na fila…</p>';
+  el.append(miniatura, corpo);
+  $('#fotoResultados').prepend(el);
+  return corpo;
+}
+
+function marcarReconhecida(corpo, n) {
+  const id = n.carta.id;
+  definirQtd(id, qtdDe(id) + 1);
+  vibrar(20);
+  corpo.innerHTML = '';
+  const img = document.createElement('img');
+  img.className = 'foto-carta';
+  prepararImagem(img, n.carta);
+  img.src = urlImagem(n.carta) ?? '';
+  const txt = document.createElement('div');
+  txt.innerHTML = '<b class="ok">✓ Marcada!</b><p class="sub nome"></p><p class="sub qtd-txt"></p>';
+  txt.querySelector('.nome').textContent = descreverCarta(n);
+  txt.querySelector('.qtd-txt').textContent = `Agora você tem ${qtdDe(id)}.`;
+  const desfazer = document.createElement('button');
+  desfazer.textContent = '↶ Desfazer';
+  desfazer.onclick = () => {
+    definirQtd(id, qtdDe(id) - 1);
+    desenharSeries();
+    mostrarEscolhas(corpo, n.todas, 'Desfeito. Era outra?');
+  };
+  txt.appendChild(desfazer);
+  corpo.append(img, txt);
+}
+
+function mostrarEscolhas(corpo, notas, titulo) {
+  corpo.innerHTML = '';
+  const p = document.createElement('p');
+  p.className = 'sub';
+  p.textContent = titulo;
+  corpo.appendChild(p);
+  const lista = document.createElement('div');
+  lista.className = 'foto-opcoes';
+  for (const n of notas) {
+    const b = document.createElement('button');
+    b.className = 'foto-opcao';
+    b.title = descreverCarta(n);
+    const img = document.createElement('img');
+    img.loading = 'lazy';
+    prepararImagem(img, n.carta);
+    img.src = urlImagem(n.carta) ?? '';
+    const leg = document.createElement('span');
+    leg.textContent = `#${n.carta.localId} ${n.set?.name ?? ''}`;
+    b.append(img, leg);
+    b.onclick = () => { marcarReconhecida(corpo, { ...n, todas: notas }); desenharSeries(); };
+    lista.appendChild(b);
+  }
+  corpo.appendChild(lista);
+}
+
+let filaFotos = Promise.resolve();
+function reconhecerFotos(arquivos) {
+  for (const arquivo of arquivos) {
+    const corpo = linhaResultado(arquivo);
+    filaFotos = filaFotos.then(() => reconhecerUma(arquivo, corpo));
+  }
+  filaFotos = filaFotos.then(() => { $('#fotoStatus').textContent = ''; desenharSeries(); });
+}
+
+async function reconhecerUma(arquivo, corpo) {
+  const status = $('#fotoStatus');
+  try {
+    if (!estado.series.length) { corpo.innerHTML = '<p class="sub">Espere o catálogo de coleções carregar e tente de novo.</p>'; return; }
+    corpo.innerHTML = '<p class="sub">Preparando o leitor…</p>';
+    aoProgredirOCR = (m) => {
+      status.textContent = `Baixando o leitor de texto (só na 1ª vez)… ${Math.round((m.progress ?? 0) * 100)}%`;
+    };
+    const worker = await prepararOCR();
+    aoProgredirOCR = null;
+    status.textContent = '';
+    corpo.innerHTML = '<p class="sub">🔎 Lendo a carta…</p>';
+    const leitura = await lerCarta(worker, arquivo);
+    corpo.innerHTML = '<p class="sub">📚 Procurando no catálogo…</p>';
+    const notas = await acharCandidatas(leitura);
+    console.debug('[foto]', leitura, notas);
+    if (!notas.length) {
+      const lido = leitura.numeros[0] ? ` (li o número ${leitura.numeros[0].numero}/${leitura.numeros[0].total})` : '';
+      corpo.innerHTML = '<p class="sub"></p>';
+      corpo.firstChild.textContent = `Não reconheci esta carta${lido}. Tente outra foto, mais de perto e sem reflexo — ou use a busca pelo nome.`;
+      return;
+    }
+    if ($('#cfgAutoMarcar').checked && temCerteza(notas)) marcarReconhecida(corpo, { ...notas[0], todas: notas });
+    else mostrarEscolhas(corpo, notas, notas.length === 1 ? 'Acho que é esta. Toque para marcar:' : 'Qual destas é a sua? Toque para marcar:');
+  } catch (e) {
+    console.error(e);
+    corpo.innerHTML = '<p class="sub"></p>';
+    corpo.firstChild.textContent = `Deu erro: ${e.message}. Verifique a internet e tente de novo.`;
+  }
+}
+
+$('#btnFoto').onclick = () => {
+  $('#modalFoto').abertoEm = Date.now();
+  $('#modalFoto').showModal();
+  prepararOCR().catch(() => {}); // já vai baixando o leitor enquanto o Mestre tira a foto
+};
+['#arqFotoCamera', '#arqFotos'].forEach((sel) => {
+  $(sel).onchange = (e) => { reconhecerFotos([...e.target.files]); e.target.value = ''; };
+});
 
 // ---------- Configurações / backup ----------
 $('#btnConfig').onclick = () => { $('#cfgIdioma').value = estado.config.idioma; $('#modalConfig').showModal(); };

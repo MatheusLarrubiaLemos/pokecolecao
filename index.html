@@ -19,6 +19,7 @@
     <button id="btnMenu" class="icone" aria-label="Abrir coleções" aria-expanded="false" aria-controls="lateral">☰</button>
     <h1>PokéColeção</h1>
     <div class="total" id="totalGeral">0 cartas</div>
+    <button id="btnFoto" class="icone" aria-label="Reconhecer cartas por foto" title="Reconhecer cartas por foto">📷</button>
     <button id="btnConfig" class="icone" aria-label="Configurações">⚙</button>
   </header>
 
@@ -35,6 +36,7 @@
           <p class="so-pc">Escolha uma coleção ao lado ou procure uma carta pelo nome.</p>
           <p class="so-celular">Toque em <b>☰ Coleções</b> para escolher uma coleção, ou procure uma carta pelo nome.</p>
           <button class="so-celular botao-principal" data-abrir-menu>☰ Ver coleções</button>
+          <p class="sub">Ou toque em <b>📷</b> e tire foto das suas cartas: eu reconheço e marco sozinho.</p>
         </div>
       </section>
 
@@ -88,6 +90,23 @@
       <button id="btnLimparCache">Recarregar catálogo</button>
     </div>
     <p id="txtVersao" class="sub versao"></p>
+  </dialog>
+
+  <dialog id="modalFoto" class="modal modal-foto">
+    <button class="fechar" data-fechar aria-label="Fechar">✕</button>
+    <h3>📷 Reconhecer por foto</h3>
+    <p class="sub">Fotografe a carta <b>em pé, de frente e inteira</b>, com boa luz e sem reflexo. Eu leio o nome e o número (ex: 025/198) e marco na coleção.</p>
+    <div class="botoes">
+      <label class="botao-arquivo botao-principal">📷 Tirar foto
+        <input id="arqFotoCamera" type="file" accept="image/*" capture="environment" hidden>
+      </label>
+      <label class="botao-arquivo">🖼 Escolher fotos
+        <input id="arqFotos" type="file" accept="image/*" multiple hidden>
+      </label>
+    </div>
+    <label class="opcao"><input id="cfgAutoMarcar" type="checkbox" checked> Marcar sozinho quando tiver certeza</label>
+    <p id="fotoStatus" class="sub" aria-live="polite"></p>
+    <div id="fotoResultados" class="foto-resultados"></div>
   </dialog>
 
   <div id="aviso" class="aviso" hidden></div>

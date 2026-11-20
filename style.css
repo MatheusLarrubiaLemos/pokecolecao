@@ -272,3 +272,25 @@ button, .carta, .item-set { touch-action: manipulation; -webkit-tap-highlight-co
 @media (prefers-reduced-motion: reduce) {
   .modal, .lateral, .carta { animation: none; transition: none; }
 }
+
+/* Reconhecer por foto */
+.modal-foto { max-width: min(560px, calc(100vw - 32px)); }
+.modal-foto .botao-principal { margin: 0 !important; border: none; }
+.modal .opcao { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: .9rem; }
+.foto-resultados { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.foto-item { display: flex; gap: 10px; align-items: flex-start; padding: 10px; border: 1px solid var(--borda); border-radius: 12px; background: var(--fundo); }
+.modal img.foto-mini { width: 56px; height: 78px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
+.foto-corpo { flex: 1; min-width: 0; display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
+.foto-corpo > p { margin: 0; flex-basis: 100%; }
+.foto-corpo .nome { margin: 2px 0; }
+.foto-corpo .ok { color: var(--ok); }
+.modal img.foto-carta { width: 72px; border-radius: 6px; flex-shrink: 0; }
+.foto-opcoes { display: grid; grid-template-columns: repeat(auto-fill, minmax(82px, 1fr)); gap: 8px; width: 100%; }
+.foto-opcao { padding: 4px; display: flex; flex-direction: column; gap: 4px; align-items: stretch; font-size: .7rem; text-align: center; }
+.foto-opcao img { width: 100%; border-radius: 4px; aspect-ratio: 245 / 342; object-fit: cover; }
+.foto-opcao span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--sub); }
+@media (max-width: 760px) {
+  .modal img.foto-carta, .foto-opcao img { max-height: none; }
+  .foto-opcoes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+.foto-corpo .sem-img, .foto-opcao .sem-img { width: 72px; min-height: 60px; font-size: .7rem; color: var(--sub); display: flex; align-items: center; justify-content: center; text-align: center; }
