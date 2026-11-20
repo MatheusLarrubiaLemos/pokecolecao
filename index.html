@@ -1,83 +1,225 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-tipo="classico">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#e3350d">
+  <meta name="description" content="Marque as cartas Pokémon TCG que você tem, veja o progresso de cada coleção e reconheça cartas por foto.">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="PokéColeção">
   <title>PokéColeção TCG</title>
+  <!-- Abre a conexão com a API e as imagens antes de precisar delas -->
+  <link rel="preconnect" href="https://api.tcgdex.net" crossorigin>
+  <link rel="preconnect" href="https://assets.tcgdex.net">
+  <link rel="preload" href="fontes/fredoka.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icones/icone.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icones/icone-180.png">
   <link rel="stylesheet" href="style.css">
+  <script>
+    // Aplica o tipo favorito e o tema antes de desenhar a página (evita piscar a cor errada)
+    try {
+      var c = JSON.parse(localStorage.getItem('pokecolecao:config')) || {};
+      if (c.tipo) document.documentElement.dataset.tipo = c.tipo;
+      if (c.tema === 'claro' || c.tema === 'escuro') document.documentElement.dataset.tema = c.tema;
+    } catch (e) { /* sem configuração salva */ }
+  </script>
 </head>
 <body>
   <header class="topo">
-    <button id="btnMenu" class="icone" aria-label="Abrir coleções" aria-expanded="false" aria-controls="lateral">☰</button>
-    <h1>PokéColeção</h1>
+    <a class="marca" href="#" aria-label="PokéColeção — ir para o início">
+      <svg class="pokebola" viewBox="0 0 64 64" aria-hidden="true">
+        <circle cx="32" cy="32" r="29" fill="#fff"/>
+        <path d="M3 32a29 29 0 0 1 58 0z" fill="#ee1515"/>
+        <circle cx="32" cy="32" r="29" fill="none" stroke="#1d2030" stroke-width="4"/>
+        <path d="M3 32h58" stroke="#1d2030" stroke-width="5"/>
+        <circle cx="32" cy="32" r="9.5" fill="#fff" stroke="#1d2030" stroke-width="4"/>
+        <circle cx="32" cy="32" r="4" fill="#fff" stroke="#1d2030" stroke-width="2"/>
+      </svg>
+      <h1>PokéColeção</h1>
+    </a>
     <div class="total" id="totalGeral">0 cartas</div>
-    <button id="btnConfig" class="icone" aria-label="Configurações">⚙</button>
+    <div class="acoes-topo">
+      <button id="btnFoto" class="icone" aria-label="Reconhecer cartas por foto" title="Reconhecer cartas por foto">📷</button>
+      <button id="btnConfig" class="icone" aria-label="Configurações" title="Configurações">⚙</button>
+    </div>
   </header>
 
   <div class="layout">
-    <aside id="lateral" class="lateral">
-      <input id="buscaSet" type="search" placeholder="Filtrar coleções…">
-      <div id="listaSeries" class="lista-series">Carregando coleções…</div>
+    <aside id="lateral" class="lateral" aria-label="Coleções">
+      <div class="lateral-topo">
+        <div class="lateral-titulo">
+          <h2>📚 Coleções</h2>
+          <button class="fechar-lateral" data-fechar-menu aria-label="Fechar coleções">✕</button>
+        </div>
+        <input id="buscaSet" type="search" placeholder="Filtrar coleções…" aria-label="Filtrar coleções">
+        <div class="chips" role="group" aria-label="Mostrar coleções">
+          <button data-fs="todas" class="ativo">Todas</button>
+          <button data-fs="comecadas">Comecei</button>
+          <button data-fs="completas">Completas</button>
+        </div>
+      </div>
+      <div id="listaSeries" class="lista-series">
+        <div class="esq-linha"></div><div class="esq-linha"></div><div class="esq-linha"></div>
+        <div class="esq-linha"></div><div class="esq-linha"></div><div class="esq-linha"></div>
+      </div>
     </aside>
 
     <main class="principal">
-      <section id="cabecalhoSet" class="cabecalho-set">
-        <div class="boas-vindas">
-          <h2>Bem-vindo, Mestre!</h2>
-          <p class="so-pc">Escolha uma coleção ao lado ou procure uma carta pelo nome.</p>
-          <p class="so-celular">Toque em <b>☰ Coleções</b> para escolher uma coleção, ou procure uma carta pelo nome.</p>
-          <button class="so-celular botao-principal" data-abrir-menu>☰ Ver coleções</button>
-        </div>
+      <!-- Menu principal -->
+      <section id="telaInicio" class="inicio">
+        <form id="formBuscaInicio" class="busca-inicio" role="search">
+          <input id="buscaInicio" type="search" enterkeyhint="search" placeholder="🔎 Buscar carta em todas as coleções…" aria-label="Buscar carta em todas as coleções">
+          <button type="submit" class="botao-principal">Buscar</button>
+        </form>
+
+        <div id="inicioDinamico" class="inicio"></div>
+
+        <section class="bloco guia" id="guia">
+          <h3>📖 Guia do colecionador</h3>
+          <details>
+            <summary><span class="g-icone">🔢</span>Como ler o número da carta</summary>
+            <div class="conteudo">
+              <p>No rodapé da carta aparece algo como <b>025/198</b>: é a carta nº 25 de uma coleção com 198 cartas oficiais.</p>
+              <p>Quando o primeiro número é <b>maior</b> que o segundo (ex: <b>210/198</b>), é uma <b>carta secreta</b>, normalmente das mais raras.</p>
+              <p>Algumas coleções têm galerias com letras no número, como <b>TG</b> (Galeria de Treinadores) e <b>GG</b> (Galeria de Galar).</p>
+            </div>
+          </details>
+          <details>
+            <summary><span class="g-icone">⭐</span>Símbolos de raridade</summary>
+            <div class="conteudo">
+              <ul class="raridades">
+                <li><span class="simb">●</span> Comum</li>
+                <li><span class="simb">◆</span> Incomum</li>
+                <li><span class="simb">★</span> Rara</li>
+              </ul>
+              <p>Na era <b>Escarlate e Violeta</b> as estrelas ganharam cores:</p>
+              <ul class="raridades">
+                <li><span class="simb">★★</span> preta: Rara Dupla (as cartas <i>ex</i>)</li>
+                <li><span class="simb prata">★★</span> prateada: Ultra Rara (arte completa)</li>
+                <li><span class="simb ouro">★</span> dourada: Ilustração Rara</li>
+                <li><span class="simb ouro">★★</span> dourada: Ilustração Rara Especial</li>
+                <li><span class="simb ouro">★★★</span> dourada: Hiper Rara (cartas douradas)</li>
+              </ul>
+              <p>Toque no <b>i</b> de uma carta para ver a raridade dela.</p>
+            </div>
+          </details>
+          <details>
+            <summary><span class="g-icone">🔤</span>Sigla da coleção e marca de regulamento</summary>
+            <div class="conteudo">
+              <p>Perto do número fica a <b>sigla da coleção</b> (ex: <b>SVI</b> = Escarlate e Violeta) e, nas cartas em português, o código <b>PT</b>.</p>
+              <p>A letrinha dentro de um quadrado (ex: <b>G</b>, <b>H</b>, <b>I</b>) é a <b>marca de regulamento</b>: ela diz se a carta pode ser usada em torneios do formato <b>Padrão</b>. As letras aceitas mudam todo ano, na rotação.</p>
+            </div>
+          </details>
+          <details>
+            <summary><span class="g-icone">🛡️</span>Como guardar suas cartas</summary>
+            <div class="conteudo">
+              <p>Coloque as cartas em <b>sleeves</b> (protetores plásticos) e guarde em <b>pastas com folhas de 9 bolsos</b> ou em caixas próprias.</p>
+              <p>As mais valiosas vão num <b>top loader</b> (protetor rígido). Deixe longe do sol, do calor e da umidade, e nunca prenda com elástico.</p>
+            </div>
+          </details>
+          <details>
+            <summary><span class="g-icone">🔍</span>Estado de conservação</summary>
+            <div class="conteudo">
+              <ul class="raridades">
+                <li><span class="simb">NM</span> Near Mint: quase nova, sem marcas</li>
+                <li><span class="simb">LP</span> Lightly Played: pouco usada, marcas leves</li>
+                <li><span class="simb">MP</span> Moderately Played: desgaste visível</li>
+                <li><span class="simb">HP</span> Heavily Played: bem gasta</li>
+                <li><span class="simb">DMG</span> Damaged: dobrada, rasgada ou molhada</li>
+              </ul>
+              <p>Quanto melhor o estado, maior o valor da carta.</p>
+            </div>
+          </details>
+          <details>
+            <summary><span class="g-icone">👆</span>Atalhos do PokéColeção</summary>
+            <div class="conteudo">
+              <ul class="raridades">
+                <li><span class="simb">Toque</span> marca ou desmarca a carta</li>
+                <li><span class="simb">Segurar</span> abre detalhes, preço e quantidade</li>
+                <li><span class="simb">📷</span> reconhece cartas por foto</li>
+                <li><span class="simb">Filtros</span> Tenho / Faltam mostram o que você tem ou não</li>
+                <li><span class="simb">⚙</span> backup, tema e tipo favorito</li>
+              </ul>
+            </div>
+          </details>
+        </section>
+
+        <footer class="rodape">
+          <p>Dados e imagens das cartas: <a href="https://tcgdex.dev" target="_blank" rel="noopener">TCGdex</a>. Pokémon e seus nomes são marcas da Nintendo / The Pokémon Company. Projeto de fã, sem fins comerciais.</p>
+          <p id="txtVersaoRodape"></p>
+        </footer>
       </section>
 
-      <div class="barra">
-        <input id="buscaCarta" type="search" enterkeyhint="search" placeholder="Buscar carta (ex: Pikachu) — Enter busca em todas as coleções">
-        <div class="filtros" role="group" aria-label="Filtro">
-          <button data-filtro="todas" class="ativo">Todas</button>
-          <button data-filtro="tenho">Tenho</button>
-          <button data-filtro="faltam">Faltam</button>
+      <!-- Cartas de uma coleção ou resultado da busca -->
+      <section id="telaCartas" hidden>
+        <section id="cabecalhoSet" class="cabecalho-set"></section>
+        <div class="barra">
+          <input id="buscaCarta" type="search" enterkeyhint="search" placeholder="Filtrar nesta coleção (nome ou número)…" aria-label="Buscar carta">
+          <div class="filtros" role="group" aria-label="Filtro">
+            <button data-filtro="todas" class="ativo">Todas</button>
+            <button data-filtro="tenho">Tenho</button>
+            <button data-filtro="faltam">Faltam</button>
+          </div>
         </div>
-      </div>
-
-      <div id="grade" class="grade"></div>
+        <div id="grade" class="grade"></div>
+        <p id="gradeVazia" class="vazio" hidden>Nenhuma carta aqui.</p>
+      </section>
     </main>
   </div>
+
+  <nav class="nav-inferior" aria-label="Menu">
+    <button data-nav="inicio"><span class="ni-icone">🏠</span>Início</button>
+    <button data-nav="colecoes"><span class="ni-icone">📚</span>Coleções</button>
+    <button data-nav="foto" class="nav-foto" aria-label="Escanear cartas por foto"><span class="bola"></span>Escanear</button>
+    <button data-nav="busca"><span class="ni-icone">🔎</span>Buscar</button>
+    <button data-nav="config"><span class="ni-icone">⚙️</span>Ajustes</button>
+  </nav>
 
   <div id="veu" class="veu" hidden></div>
   <button id="btnTopo" class="btn-topo" aria-label="Voltar ao topo" hidden>↑</button>
 
-  <dialog id="modalCarta" class="modal">
+  <dialog id="modalCarta" class="modal modal-carta">
     <button class="fechar" data-fechar aria-label="Fechar">✕</button>
-    <img id="mcImg" alt="">
-    <h3 id="mcNome"></h3>
-    <p id="mcInfo" class="sub"></p>
-    <p class="sub dica so-celular">Dica: segure o dedo numa carta para abrir esta janela.</p>
-    <div class="qtd">
-      <button id="mcMenos" aria-label="Diminuir">−</button>
-      <span id="mcQtd">0</span>
-      <button id="mcMais" aria-label="Aumentar">+</button>
+    <div class="mc-img"><img id="mcImg" alt="" width="600" height="825"></div>
+    <div class="mc-corpo">
+      <h3 id="mcNome"></h3>
+      <p id="mcInfo" class="sub"></p>
+      <div class="qtd">
+        <button id="mcMenos" aria-label="Diminuir">−</button>
+        <span id="mcQtd">0</span>
+        <button id="mcMais" aria-label="Aumentar">+</button>
+      </div>
+      <div id="mcDetalhes"></div>
+      <button id="mcVerSet" class="botao-sec">📚 Ver a coleção desta carta</button>
+      <p class="sub dica so-celular">Dica: segure o dedo numa carta para abrir esta janela.</p>
     </div>
   </dialog>
 
   <dialog id="modalConfig" class="modal">
     <button class="fechar" data-fechar aria-label="Fechar">✕</button>
-    <h3>Configurações</h3>
+    <h3>⚙️ Configurações</h3>
+    <h4>🎨 Seu tipo favorito</h4>
+    <p class="sub">Muda as cores do app.</p>
+    <div id="cfgTipos" class="tipos"></div>
+    <label>Tema
+      <select id="cfgTema">
+        <option value="auto">Automático (igual ao aparelho)</option>
+        <option value="claro">Claro</option>
+        <option value="escuro">Escuro</option>
+      </select>
+    </label>
     <label>Idioma das cartas
       <select id="cfgIdioma">
         <option value="pt">Português</option>
         <option value="en">Inglês</option>
       </select>
     </label>
-    <h4>Backup da coleção</h4>
+    <h4>💾 Backup da coleção</h4>
     <p class="sub">Sua coleção fica salva neste navegador. Exporte de vez em quando para não perder nada.</p>
+    <p class="sub" id="txtUltimoBackup"></p>
     <div class="botoes">
       <button id="btnExportar">⬇ Exportar (.json)</button>
       <label class="botao-arquivo">⬆ Importar
@@ -85,9 +227,26 @@
       </label>
     </div>
     <div class="botoes">
-      <button id="btnLimparCache">Recarregar catálogo</button>
+      <button id="btnLimparCache">🔄 Recarregar catálogo</button>
     </div>
     <p id="txtVersao" class="sub versao"></p>
+  </dialog>
+
+  <dialog id="modalFoto" class="modal modal-foto">
+    <button class="fechar" data-fechar aria-label="Fechar">✕</button>
+    <h3>📷 Reconhecer por foto</h3>
+    <p class="sub">Fotografe a carta <b>em pé, de frente e inteira</b>, com boa luz e sem reflexo. Eu leio o nome e o número (ex: 025/198) e marco na coleção.</p>
+    <div class="botoes">
+      <label class="botao-arquivo botao-principal">📷 Tirar foto
+        <input id="arqFotoCamera" type="file" accept="image/*" capture="environment" hidden>
+      </label>
+      <label class="botao-arquivo">🖼 Escolher fotos
+        <input id="arqFotos" type="file" accept="image/*" multiple hidden>
+      </label>
+    </div>
+    <label class="opcao"><input id="cfgAutoMarcar" type="checkbox" checked> Marcar sozinho quando tiver certeza</label>
+    <p id="fotoStatus" class="sub" aria-live="polite"></p>
+    <div id="fotoResultados" class="foto-resultados"></div>
   </dialog>
 
   <div id="aviso" class="aviso" hidden></div>
