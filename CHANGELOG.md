@@ -2,6 +2,36 @@
 
 A versão atual aparece em ⚙ Configurações, no rodapé.
 
+## v1.3.0 — Mais rápido, visual temático e menu principal (20/11/2026)
+
+**Mais rápido**
+- A lista de coleções fica guardada no aparelho e aparece já na primeira tela (2× mais rápido ao voltar ao site). O catálogo se atualiza sozinho em segundo plano, sem fazer o Mestre esperar.
+- Cartas sem imagem em português vão direto na imagem em inglês. Antes o site tentava a portuguesa, dava erro e só depois buscava a inglesa: nessas coleções as cartas aparecem até 6× mais rápido.
+- Acabaram os ~100 pedidos de símbolos de coleção que não existem mais no servidor.
+- Filtros (Todas/Tenho/Faltam) e a busca dentro da coleção ficaram instantâneos: a grade não é mais remontada.
+- As primeiras cartas da tela carregam com prioridade e aparecem esqueletos animados enquanto carrega.
+- Abrir um link direto de coleção não espera mais a lista inteira.
+
+**Visual temático**
+- Topo estilo Poké Ball, fonte arredondada (Fredoka), fundo com Poké Balls, anéis de progresso em cada coleção, brilho holográfico nas cartas que você tem (no PC) e confete ao completar uma coleção.
+- **Tipo favorito** em ⚙: Fogo, Água, Planta, Elétrico, Psíquico… o app muda de cor.
+- Tema claro, escuro ou automático.
+- No celular: barra de navegação embaixo (Início, Coleções, Escanear, Buscar, Ajustes) e o botão voltar do celular funciona.
+
+**Menu principal**
+- Cartão de treinador com nível (de Novato a Mestre Pokémon), cartas únicas, cópias, repetidas e coleções completas.
+- Atalhos, lembrete de backup, Continuar colecionando, Quase completas, últimas cartas marcadas, 9 insígnias e lançamentos.
+- Guia do colecionador: número da carta, raridades, sigla e marca de regulamento, como guardar e estado de conservação.
+- Janela da carta com raridade, tipo, PS, ilustrador, marca de regulamento, se vale em torneios e **preço de referência** (Cardmarket e TCGplayer).
+
+**Catálogo**
+- Coleções antigas sem cartas em português no catálogo (Coleção Básica, EX, DP, HGSS…) agora aparecem em inglês, em vez de vazias.
+- Coleções do TCG Pocket (digitais) foram para o fim da lista, marcadas como "digital".
+- Busca mostra a coleção de cada carta, com as mais novas primeiro.
+- 📷: reconhece o nome mesmo quando a leitura vem "grudada" em outras letras.
+
+A coleção e o formato do backup continuam iguais.
+
 ## v1.2.0 — Reconhecer cartas por foto (20/11/2026)
 
 - Botão **📷** no topo: tire foto da carta (ou escolha várias fotos da galeria) e eu **reconheço e marco sozinho**.
