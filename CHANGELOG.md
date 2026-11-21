@@ -2,6 +2,13 @@
 
 A versão atual aparece em ⚙ Configurações, no rodapé.
 
+## v1.4.0 — Várias cartas numa foto só (21/11/2026)
+
+- 📷 agora reconhece **várias cartas na mesma foto**, como uma página inteira do fichário: o site acha o número impresso de cada carta, descobre a grade (2×2, 3×3…) e lê uma por uma.
+- Escolha **"Cartas na foto"**: Auto (descobre sozinho), 1, 2, 4 (2×2) ou 9 (3×3), caso o automático erre.
+- Cada carta da foto ganha sua própria linha com a miniatura daquele pedaço, e a foto mostra um resumo (marcadas, para confirmar, sem reconhecer).
+- Corrigida a imagem da carta reconhecida que aparecia esticada.
+
 ## v1.3.0 — Mais rápido, visual temático e menu principal (20/11/2026)
 
 **Mais rápido**

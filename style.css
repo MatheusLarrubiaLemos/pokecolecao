@@ -492,11 +492,19 @@ input[type="search"]:focus, select:focus {
 .foto-corpo { flex: 1; min-width: 0; display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
 .foto-corpo > p { margin: 0; flex-basis: 100%; }
 .foto-corpo .nome { margin: 2px 0; }
+.foto-corpo > div { flex: 1; min-width: 150px; }
 .foto-corpo .ok { color: var(--ok); }
-.modal img.foto-carta { width: 72px; border-radius: 6px; flex-shrink: 0; }
+.modal img.foto-carta { width: 72px; height: auto; border-radius: 6px; flex-shrink: 0; }
+.foto-sub { margin-left: 18px; padding: 8px; }
+.modal .foto-sub img.foto-mini { width: 48px; height: auto; max-height: 80px; object-fit: contain; }
+.foto-nada { opacity: .65; }
+.rotulo-chips { margin: 10px 0 0; }
+.rotulo-chips small { font-size: .78rem; }
+.chips-foto { margin: 6px 0 4px; flex-wrap: wrap; }
+.chips-foto button { flex: 1 0 auto; }
 .foto-opcoes { display: grid; grid-template-columns: repeat(auto-fill, minmax(82px, 1fr)); gap: 8px; width: 100%; }
 .foto-opcao { padding: 4px; display: flex; flex-direction: column; gap: 4px; align-items: stretch; font-size: .7rem; text-align: center; }
-.foto-opcao img { width: 100%; border-radius: 4px; aspect-ratio: 245 / 342; object-fit: cover; }
+.foto-opcao img { width: 100%; height: auto; border-radius: 4px; aspect-ratio: 245 / 342; object-fit: cover; }
 .foto-opcao span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--sub); }
 .foto-corpo .sem-img, .foto-opcao .sem-img { width: 72px; min-height: 100px; border-radius: 6px; font-size: .65rem; }
 .foto-opcao .sem-img { width: 100%; }

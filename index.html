@@ -235,7 +235,7 @@
   <dialog id="modalFoto" class="modal modal-foto">
     <button class="fechar" data-fechar aria-label="Fechar">✕</button>
     <h3>📷 Reconhecer por foto</h3>
-    <p class="sub">Fotografe a carta <b>em pé, de frente e inteira</b>, com boa luz e sem reflexo. Eu leio o nome e o número (ex: 025/198) e marco na coleção.</p>
+    <p class="sub">Fotografe a carta <b>em pé, de frente e inteira</b>, com boa luz e sem reflexo. Eu leio o nome e o número (ex: 025/198) e marco na coleção. Várias cartas de uma vez? Enquadre só as cartas, bem retas.</p>
     <div class="botoes">
       <label class="botao-arquivo botao-principal">📷 Tirar foto
         <input id="arqFotoCamera" type="file" accept="image/*" capture="environment" hidden>
@@ -243,6 +243,14 @@
       <label class="botao-arquivo">🖼 Escolher fotos
         <input id="arqFotos" type="file" accept="image/*" multiple hidden>
       </label>
+    </div>
+    <p class="sub rotulo-chips">Cartas na foto <small>(dá para fotografar uma página inteira do fichário)</small></p>
+    <div class="chips chips-foto" role="group" aria-label="Quantas cartas tem na foto">
+      <button data-por-foto="auto" class="ativo">Auto</button>
+      <button data-por-foto="1">1</button>
+      <button data-por-foto="2">2</button>
+      <button data-por-foto="4">4 (2×2)</button>
+      <button data-por-foto="9">9 (3×3)</button>
     </div>
     <label class="opcao"><input id="cfgAutoMarcar" type="checkbox" checked> Marcar sozinho quando tiver certeza</label>
     <p id="fotoStatus" class="sub" aria-live="polite"></p>
