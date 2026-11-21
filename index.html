@@ -235,6 +235,8 @@
   <dialog id="modalFoto" class="modal modal-foto">
     <button class="fechar" data-fechar aria-label="Fechar">✕</button>
     <h3>📷 Reconhecer por foto</h3>
+    <button id="btnEscaner" class="botao-principal botao-escaner">🎥 Modo escâner<small>Câmera ao vivo: vá passando as cartas, uma por uma, e eu marco sozinho</small></button>
+    <p class="sub ou">ou tire uma foto:</p>
     <p class="sub">Fotografe a carta <b>em pé, de frente e inteira</b>, com boa luz e sem reflexo. Eu leio o nome e o número (ex: 025/198) e marco na coleção. Várias cartas de uma vez? Enquadre só as cartas, bem retas.</p>
     <div class="botoes">
       <label class="botao-arquivo botao-principal">📷 Tirar foto
@@ -255,6 +257,20 @@
     <label class="opcao"><input id="cfgAutoMarcar" type="checkbox" checked> Marcar sozinho quando tiver certeza</label>
     <p id="fotoStatus" class="sub" aria-live="polite"></p>
     <div id="fotoResultados" class="foto-resultados"></div>
+  </dialog>
+
+  <dialog id="modalEscaner" class="escaner" aria-label="Modo escâner">
+    <div class="esc-camera">
+      <video id="escVideo" playsinline muted></video>
+      <div id="escMoldura" class="esc-moldura"></div>
+    </div>
+    <div class="esc-topo">
+      <span id="escContador" class="esc-contador">0 cartas</span>
+      <button id="escLuz" class="esc-botao" aria-label="Lanterna" hidden>💡</button>
+      <button class="esc-botao" data-fechar aria-label="Fechar escâner">✕</button>
+    </div>
+    <p id="escStatus" class="esc-status" aria-live="polite"></p>
+    <div id="escResultado" class="esc-resultado" hidden></div>
   </dialog>
 
   <div id="aviso" class="aviso" hidden></div>

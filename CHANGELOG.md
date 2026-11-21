@@ -2,6 +2,12 @@
 
 A versão atual aparece em ⚙ Configurações, no rodapé.
 
+## v1.5.0 — Modo escâner (21/11/2026)
+
+- 🎥 **Modo escâner**: a câmera fica aberta e você vai passando as cartas na frente, uma por uma. Quando a carta fica parada dentro da moldura, ela é lida e marcada sozinha, com bipe e vibração. Ideal para dezenas de cartas.
+- Não marca a mesma carta duas vezes enquanto ela continua na frente da câmera; passar uma cópia repetida depois conta +1.
+- Na dúvida, mostra as opções na própria tela. Tem desfazer, contador de cartas e lanterna 💡 (se o celular tiver).
+
 ## v1.4.0 — Várias cartas numa foto só (21/11/2026)
 
 - 📷 agora reconhece **várias cartas na mesma foto**, como uma página inteira do fichário: o site acha o número impresso de cada carta, descobre a grade (2×2, 3×3…) e lê uma por uma.

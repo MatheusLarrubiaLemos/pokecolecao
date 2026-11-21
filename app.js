@@ -4,7 +4,7 @@
  */
 'use strict';
 
-const VERSAO = '1.4.0'; // atualize também o CHANGELOG.md
+const VERSAO = '1.5.0'; // atualize também o CHANGELOG.md
 const API = 'https://api.tcgdex.net/v2';
 const ASSETS = 'https://assets.tcgdex.net';
 const CHAVE_COLECAO = 'pokecolecao:colecao';
@@ -1584,6 +1584,201 @@ async function reconhecerRegiao(worker, bitmap, regiao, corpo, parteDeVarias = f
   mostrarEscolhas(corpo, notas, notas.length === 1 ? 'Acho que é esta. Toque para marcar:' : 'Qual destas é a sua? Toque para marcar:');
   return 'duvida';
 }
+
+// ---------- Modo escâner (câmera ao vivo) ----------
+// O Mestre vai passando as cartas na frente da câmera. Quando a imagem fica parada dentro da
+// moldura, lê a carta; se tiver certeza, marca com bipe e vibração e espera a próxima carta.
+const escaner = { stream: null, ativo: false, ocupado: false, anterior: null, paradaDesde: 0, esperarTroca: false, liberarEm: 0, lidas: 0, audio: null };
+
+function statusEscaner(texto) { $('#escStatus').textContent = texto; }
+
+async function abrirEscaner() {
+  if (!navigator.mediaDevices?.getUserMedia) { avisar('Este navegador não deixa usar a câmera aqui.'); return; }
+  if (!estado.series.length) { avisar('Espere o catálogo carregar, Mestre.'); return; }
+  try { escaner.audio ??= new (window.AudioContext || window.webkitAudioContext)(); } catch { /* sem som */ }
+  $('#modalFoto').close();
+  const m = $('#modalEscaner');
+  m.abertoEm = Date.now();
+  m.showModal();
+  escaner.lidas = 0;
+  $('#escContador').textContent = '0 cartas';
+  $('#escResultado').hidden = true;
+  statusEscaner('Abrindo a câmera…');
+  try {
+    escaner.stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1920 } }, audio: false,
+    });
+  } catch {
+    statusEscaner('Não consegui abrir a câmera. Permita o acesso à câmera nas configurações do navegador e tente de novo.');
+    return;
+  }
+  if (!m.open) { pararCamera(); return; }
+  const video = $('#escVideo');
+  video.srcObject = escaner.stream;
+  await video.play().catch(() => {});
+  const trilha = escaner.stream.getVideoTracks()[0];
+  $('#escLuz').hidden = !trilha?.getCapabilities?.()?.torch;
+  statusEscaner('Preparando o leitor…');
+  try { await prepararOCR(); } catch (e) { statusEscaner(e.message); return; }
+  if (!m.open) return;
+  escaner.ativo = true;
+  escaner.anterior = null;
+  escaner.esperarTroca = false;
+  statusEscaner('Mostre uma carta dentro da moldura e segure parada 👆');
+  lacoEscaner();
+}
+
+function pararCamera() {
+  escaner.ativo = false;
+  escaner.stream?.getTracks().forEach((t) => t.stop());
+  escaner.stream = null;
+  $('#escVideo').srcObject = null;
+}
+
+// Pedaço do vídeo que está dentro da moldura (o vídeo aparece cortado para preencher a tela)
+function areaDaMoldura(video) {
+  const rv = video.getBoundingClientRect(), rm = $('#escMoldura').getBoundingClientRect();
+  const escala = Math.max(rv.width / video.videoWidth, rv.height / video.videoHeight);
+  const offX = (rv.width - video.videoWidth * escala) / 2, offY = (rv.height - video.videoHeight * escala) / 2;
+  const folga = 0.05 * rm.width;
+  const x = Math.max(0, (rm.left - rv.left - offX - folga) / escala), y = Math.max(0, (rm.top - rv.top - offY - folga) / escala);
+  const w = Math.min(video.videoWidth - x, (rm.width + 2 * folga) / escala), h = Math.min(video.videoHeight - y, (rm.height + 2 * folga) / escala);
+  return { x, y, w, h };
+}
+
+// Miniatura cinza 24×34 para saber se a imagem está parada e se tem algo na moldura
+function amostra(video, a) {
+  const cv = amostra.cv ??= Object.assign(document.createElement('canvas'), { width: 24, height: 34 });
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(video, a.x, a.y, a.w, a.h, 0, 0, 24, 34);
+  const d = ctx.getImageData(0, 0, 24, 34).data;
+  const g = new Float32Array(24 * 34);
+  for (let i = 0; i < g.length; i++) g[i] = d[i * 4] * 0.3 + d[i * 4 + 1] * 0.59 + d[i * 4 + 2] * 0.11;
+  return g;
+}
+const diferenca = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]); return s / a.length; };
+function variacao(g) { let m = 0; for (const v of g) m += v; m /= g.length; let s = 0; for (const v of g) s += (v - m) ** 2; return Math.sqrt(s / g.length); }
+
+async function lacoEscaner() {
+  const video = $('#escVideo');
+  while (escaner.ativo) {
+    await new Promise((ok) => setTimeout(ok, 200));
+    if (!escaner.ativo || escaner.ocupado || !video.videoWidth) continue;
+    const area = areaDaMoldura(video);
+    const atual = amostra(video, area);
+    const mudou = escaner.anterior ? diferenca(atual, escaner.anterior) : 99;
+    escaner.anterior = atual;
+    if (mudou > 9) { escaner.paradaDesde = Date.now(); if (mudou > 18) escaner.esperarTroca = false; continue; }
+    if (escaner.esperarTroca && Date.now() < escaner.liberarEm) continue;
+    if (Date.now() - escaner.paradaDesde < 500) continue;
+    if (variacao(atual) < 14) { statusEscaner('Mostre uma carta dentro da moldura e segure parada 👆'); continue; } // moldura vazia
+    escaner.ocupado = true;
+    try { await lerNoEscaner(video, area); } catch (e) { console.error(e); } finally { escaner.ocupado = false; }
+  }
+}
+
+function bipe() {
+  vibrar([30, 40, 30]);
+  const a = escaner.audio;
+  if (!a) return;
+  try {
+    a.resume?.();
+    const o = a.createOscillator(), g = a.createGain();
+    o.frequency.value = 1320; g.gain.value = 0.08;
+    o.connect(g); g.connect(a.destination);
+    o.start(); o.stop(a.currentTime + 0.12);
+  } catch { /* sem som */ }
+}
+
+async function lerNoEscaner(video, area) {
+  const moldura = $('#escMoldura');
+  moldura.className = 'esc-moldura lendo';
+  statusEscaner('🔎 Lendo…');
+  const cv = document.createElement('canvas');
+  cv.width = Math.round(area.w); cv.height = Math.round(area.h);
+  cv.getContext('2d').drawImage(video, area.x, area.y, area.w, area.h, 0, 0, cv.width, cv.height);
+  const worker = await prepararOCR();
+  const leitura = await lerCarta(worker, cv);
+  const notas = await acharCandidatas(leitura);
+  if (!escaner.ativo) return;
+  escaner.esperarTroca = true; // não lê a mesma carta de novo até a imagem mudar
+  if (!notas.length) {
+    moldura.className = 'esc-moldura';
+    escaner.liberarEm = Date.now() + 1500; // tenta de novo daqui a pouco, se a carta continuar ali
+    statusEscaner('Não consegui ler. Aproxime um pouco e evite reflexo.');
+    return;
+  }
+  escaner.liberarEm = Infinity;
+  if ($('#cfgAutoMarcar').checked && temCerteza(notas)) {
+    const n = notas[0];
+    definirQtd(n.carta.id, qtdDe(n.carta.id) + 1, n.carta);
+    estado.config.fotosReconhecidas = (estado.config.fotosReconhecidas || 0) + 1;
+    salvarConfig();
+    escaner.lidas++;
+    $('#escContador').textContent = plural(escaner.lidas, 'carta', 'cartas');
+    moldura.className = 'esc-moldura ok';
+    bipe();
+    mostrarNoEscaner(n, notas, true);
+    statusEscaner('✓ Marcada! Pode passar a próxima.');
+  } else {
+    moldura.className = 'esc-moldura';
+    mostrarNoEscaner(null, notas.slice(0, 4), false);
+    statusEscaner('Fiquei em dúvida: toque na carta certa (ou passe a próxima).');
+  }
+}
+
+function mostrarNoEscaner(n, notas, marcada) {
+  const caixa = $('#escResultado');
+  caixa.hidden = false;
+  caixa.replaceChildren();
+  if (marcada) {
+    const img = criarImagemCarta(n.carta, { prioridade: true });
+    const txt = document.createElement('div');
+    txt.className = 'esc-texto';
+    txt.innerHTML = '<b></b><small></small>';
+    txt.querySelector('b').textContent = n.carta.name;
+    txt.querySelector('small').textContent = `#${n.carta.localId} · ${n.set?.name ?? ''} · agora você tem ${qtdDe(n.carta.id)}`;
+    const desfazer = document.createElement('button');
+    desfazer.className = 'esc-botao';
+    desfazer.textContent = '↶';
+    desfazer.title = 'Desfazer';
+    desfazer.onclick = () => {
+      definirQtd(n.carta.id, qtdDe(n.carta.id) - 1, n.carta);
+      escaner.lidas = Math.max(0, escaner.lidas - 1);
+      $('#escContador').textContent = plural(escaner.lidas, 'carta', 'cartas');
+      mostrarNoEscaner(null, notas.slice(0, 4), false);
+      statusEscaner('Desfeito. Era alguma destas?');
+    };
+    caixa.append(img, txt, desfazer);
+    return;
+  }
+  for (const x of notas) {
+    const b = document.createElement('button');
+    b.className = 'esc-opcao';
+    b.title = descreverCarta(x);
+    const leg = document.createElement('span');
+    leg.textContent = `#${x.carta.localId}`;
+    b.append(criarImagemCarta(x.carta, { prioridade: true }), leg);
+    b.onclick = () => {
+      definirQtd(x.carta.id, qtdDe(x.carta.id) + 1, x.carta);
+      escaner.lidas++;
+      $('#escContador').textContent = plural(escaner.lidas, 'carta', 'cartas');
+      bipe();
+      mostrarNoEscaner(x, notas, true);
+      statusEscaner('✓ Marcada! Pode passar a próxima.');
+    };
+    caixa.appendChild(b);
+  }
+}
+
+$('#btnEscaner').onclick = abrirEscaner;
+$('#modalEscaner').addEventListener('close', pararCamera);
+$('#escLuz').onclick = async () => {
+  const t = escaner.stream?.getVideoTracks()[0];
+  if (!t) return;
+  escaner.luz = !escaner.luz;
+  try { await t.applyConstraints({ advanced: [{ torch: escaner.luz }] }); } catch { /* sem lanterna */ }
+};
 
 function abrirFoto() {
   $$('[data-por-foto]').forEach((b) => b.classList.toggle('ativo', b.dataset.porFoto === (estado.config.cartasPorFoto || 'auto')));
