@@ -22,7 +22,10 @@ Site simples para controlar a sua coleção de cartas Pokémon TCG.
 
 ## Reconhecer por foto 📷
 
+- **Modo escâner** (o jeito mais rápido para muitas cartas): toque em 📷 → **🎥 Modo escâner**, deixe a câmera aberta e vá passando as cartas na frente, uma por uma. Cada carta reconhecida é marcada sozinha, com bipe.
+
 - Toque em **📷** (no celular, a Poké Ball **Escanear** da barra de baixo) e tire foto da carta (em pé, inteira, com boa luz) — ou escolha várias fotos de uma vez.
+- Dá para fotografar **várias cartas de uma vez** (ex: uma página do fichário): o site acha cada carta sozinho, ou você escolha em "Cartas na foto" (1, 2, 2×2, 3×3).
 - O site lê o nome e o número impresso (ex: `025/198`) e marca a carta sozinho. Se ficar em dúvida, mostra opções para você escolher; dá para desfazer.
 - Tudo acontece no seu aparelho (a foto não é enviada a nenhum servidor). Na primeira vez baixa o leitor de texto (~5 MB).
 

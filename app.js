@@ -4,7 +4,7 @@
  */
 'use strict';
 
-const VERSAO = '1.3.0'; // atualize também o CHANGELOG.md
+const VERSAO = '1.5.0'; // atualize também o CHANGELOG.md
 const API = 'https://api.tcgdex.net/v2';
 const ASSETS = 'https://assets.tcgdex.net';
 const CHAVE_COLECAO = 'pokecolecao:colecao';
@@ -1265,12 +1265,16 @@ function lerNumero(texto) {
   return achados;
 }
 
-// Recorta um pedaço da foto, ampliando e em tons de cinza com contraste esticado
-function recortar(bitmap, [x, y, w, h], larguraAlvo) {
-  const sx = x * bitmap.width, sy = y * bitmap.height, sw = w * bitmap.width, sh = h * bitmap.height;
+// Região da foto, em frações (0 a 1). Uma foto pode ter várias cartas: cada uma é uma região.
+const FOTO_INTEIRA = { x: 0, y: 0, w: 1, h: 1 };
+
+// Recorta um pedaço de uma região da foto, ampliando e em tons de cinza com contraste esticado
+function recortar(bitmap, [x, y, w, h], larguraAlvo, regiao = FOTO_INTEIRA) {
+  const sx = (regiao.x + x * regiao.w) * bitmap.width, sy = (regiao.y + y * regiao.h) * bitmap.height;
+  const sw = w * regiao.w * bitmap.width, sh = h * regiao.h * bitmap.height;
   const escala = Math.min(3, larguraAlvo / sw);
   const cv = document.createElement('canvas');
-  cv.width = Math.round(sw * escala); cv.height = Math.round(sh * escala);
+  cv.width = Math.max(1, Math.round(sw * escala)); cv.height = Math.max(1, Math.round(sh * escala));
   const ctx = cv.getContext('2d', { willReadFrequently: true });
   ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
   const img = ctx.getImageData(0, 0, cv.width, cv.height);
@@ -1295,15 +1299,73 @@ function recortar(bitmap, [x, y, w, h], larguraAlvo) {
   return cv;
 }
 
-async function lerCarta(worker, arquivo) {
-  const bitmap = await createImageBitmap(arquivo);
-  const ler = async (area, largura) => (await worker.recognize(recortar(bitmap, area, largura))).data.text;
+async function lerCarta(worker, bitmap, regiao = FOTO_INTEIRA) {
+  const ler = async (area, largura) => (await worker.recognize(recortar(bitmap, area, largura, regiao), {}, { text: true })).data.text;
   const textoTopo = await ler([0, 0, 1, 0.22], 1400);       // nome
   const textoInteiro = await ler([0, 0, 1, 1], 1800);       // tudo
   let numeros = lerNumero(textoInteiro);
-  if (!numeros.length) numeros = lerNumero(await ler([0, 0.82, 1, 0.18], 2000)); // rodapé ampliado
-  bitmap.close?.();
+  if (!numeros.length) numeros = lerNumero(await ler([0, 0.8, 1, 0.2], 2000)); // rodapé ampliado
   return { textoTopo, textoInteiro, numeros };
+}
+
+// Várias cartas numa foto (ex: página de fichário): cada carta tem o número impresso embaixo
+// ("025/198"). Lê a foto inteira, acha onde estão esses números e deduz a grade (2×2, 3×3…).
+async function acharCartasNaFoto(worker, bitmap) {
+  const cv = recortar(bitmap, [0, 0, 1, 1], 2800);
+  const { data } = await worker.recognize(cv, {}, { blocks: true, text: true });
+  const pontos = [];
+  for (const bloco of data.blocks ?? []) for (const par of bloco.paragraphs ?? []) for (const linha of par.lines ?? []) {
+    if (!lerNumero(linha.text).length) continue;
+    const x = (linha.bbox.x0 + linha.bbox.x1) / 2 / cv.width, y = (linha.bbox.y0 + linha.bbox.y1) / 2 / cv.height;
+    if (!pontos.some((q) => Math.abs(q.x - x) < 0.04 && Math.abs(q.y - y) < 0.04)) pontos.push({ x, y });
+  }
+  const colunas = contarFaixas(pontos.map((q) => q.x));
+  const linhas = contarFaixas(pontos.map((q) => q.y));
+  console.debug('[foto] números achados na foto inteira:', pontos, `${linhas}×${colunas}`);
+  return pontos.length >= 2 && colunas * linhas >= 2 ? dividirFoto(linhas, colunas) : [FOTO_INTEIRA];
+}
+
+// Quantas linhas/colunas de cartas: agrupa posições próximas e usa a distância entre os grupos
+// (se faltar o número de uma carta no meio, a distância denuncia a coluna que sumiu)
+function contarFaixas(valores) {
+  const v = [...valores].sort((a, b) => a - b);
+  const centros = [];
+  for (const x of v) {
+    if (centros.length && x - centros[centros.length - 1].fim < 0.12) { const c = centros[centros.length - 1]; c.fim = x; c.soma += x; c.n++; }
+    else centros.push({ fim: x, soma: x, n: 1 });
+  }
+  if (centros.length < 2) return 1;
+  const pos = centros.map((c) => c.soma / c.n);
+  const menor = Math.min(...pos.slice(1).map((x, i) => x - pos[i]));
+  return Math.min(4, Math.max(centros.length, Math.round(0.95 / menor)));
+}
+
+function dividirFoto(linhas, colunas) {
+  const regioes = [];
+  const folga = 0.02; // um pouquinho a mais em volta, caso a foto não esteja reta
+  for (let l = 0; l < linhas; l++) for (let c = 0; c < colunas; c++) {
+    const x = Math.max(0, c / colunas - folga), y = Math.max(0, l / linhas - folga);
+    regioes.push({ x, y, w: Math.min(1 - x, 1 / colunas + 2 * folga), h: Math.min(1 - y, 1 / linhas + 2 * folga) });
+  }
+  return regioes;
+}
+
+function regioesEscolhidas(bitmap) {
+  const qtd = estado.config.cartasPorFoto;
+  if (qtd === '1') return [FOTO_INTEIRA];
+  if (qtd === '2') return bitmap.width > bitmap.height ? dividirFoto(1, 2) : dividirFoto(2, 1);
+  if (qtd === '4') return dividirFoto(2, 2);
+  if (qtd === '9') return dividirFoto(3, 3);
+  return null; // automático
+}
+
+// Miniatura de uma região (para mostrar qual carta da foto é cada resultado)
+function miniaturaDaRegiao(bitmap, r) {
+  const cv = document.createElement('canvas');
+  const sw = r.w * bitmap.width, sh = r.h * bitmap.height;
+  cv.width = 160; cv.height = Math.round(160 * sh / sw);
+  cv.getContext('2d').drawImage(bitmap, r.x * bitmap.width, r.y * bitmap.height, sw, sh, 0, 0, cv.width, cv.height);
+  return cv.toDataURL('image/jpeg', 0.75);
 }
 
 // Coleções físicas por total impresso (mais novas primeiro)
@@ -1376,19 +1438,19 @@ function descreverCarta(n) {
   return `${n.carta.name} · #${n.carta.localId}${n.set ? ` · ${n.set.name}` : ''}`;
 }
 
-function linhaResultado(arquivo) {
+function linhaResultado(src, depoisDe = null) {
   const el = document.createElement('div');
   el.className = 'foto-item';
   const miniatura = document.createElement('img');
   miniatura.className = 'foto-mini';
-  miniatura.src = URL.createObjectURL(arquivo);
+  miniatura.src = src;
   miniatura.alt = 'Sua foto';
-  miniatura.onload = () => URL.revokeObjectURL(miniatura.src);
+  if (src.startsWith('blob:')) miniatura.onload = () => URL.revokeObjectURL(src);
   const corpo = document.createElement('div');
   corpo.className = 'foto-corpo';
   corpo.innerHTML = '<p class="sub">Na fila…</p>';
   el.append(miniatura, corpo);
-  $('#fotoResultados').prepend(el);
+  if (depoisDe) depoisDe.after(el); else $('#fotoResultados').prepend(el);
   return corpo;
 }
 
@@ -1439,49 +1501,299 @@ function mostrarEscolhas(corpo, notas, titulo) {
 let filaFotos = Promise.resolve();
 function reconhecerFotos(arquivos) {
   for (const arquivo of arquivos) {
-    const corpo = linhaResultado(arquivo);
-    filaFotos = filaFotos.then(() => reconhecerUma(arquivo, corpo));
+    const corpo = linhaResultado(URL.createObjectURL(arquivo));
+    filaFotos = filaFotos.then(() => reconhecerFoto(arquivo, corpo));
   }
   filaFotos = filaFotos.then(() => { $('#fotoStatus').textContent = ''; });
 }
 
-async function reconhecerUma(arquivo, corpo) {
+function escrever(corpo, texto) {
+  corpo.innerHTML = '<p class="sub"></p>';
+  corpo.firstChild.textContent = texto;
+}
+
+async function reconhecerFoto(arquivo, corpo) {
   const status = $('#fotoStatus');
+  let bitmap;
   try {
-    if (!estado.series.length) { corpo.innerHTML = '<p class="sub">Espere o catálogo de coleções carregar e tente de novo.</p>'; return; }
-    corpo.innerHTML = '<p class="sub">Preparando o leitor…</p>';
+    if (!estado.series.length) { escrever(corpo, 'Espere o catálogo de coleções carregar e tente de novo.'); return; }
+    escrever(corpo, 'Preparando o leitor…');
     aoProgredirOCR = (m) => {
       status.textContent = `Baixando o leitor de texto (só na 1ª vez)… ${Math.round((m.progress ?? 0) * 100)}%`;
     };
     const worker = await prepararOCR();
     aoProgredirOCR = null;
     status.textContent = '';
-    corpo.innerHTML = '<p class="sub">🔎 Lendo a carta…</p>';
-    const leitura = await lerCarta(worker, arquivo);
-    corpo.innerHTML = '<p class="sub">📚 Procurando no catálogo…</p>';
-    const notas = await acharCandidatas(leitura);
-    console.debug('[foto]', leitura, notas);
-    if (!notas.length) {
-      const lido = leitura.numeros[0] ? ` (li o número ${leitura.numeros[0].numero}/${leitura.numeros[0].total})` : '';
-      corpo.innerHTML = '<p class="sub"></p>';
-      corpo.firstChild.textContent = `Não reconheci esta carta${lido}. Tente outra foto, mais de perto e sem reflexo — ou use a busca pelo nome.`;
-      return;
+    bitmap = await createImageBitmap(arquivo);
+    let regioes = regioesEscolhidas(bitmap);
+    if (!regioes) {
+      escrever(corpo, '🔎 Procurando cartas na foto…');
+      regioes = await acharCartasNaFoto(worker, bitmap);
     }
-    if ($('#cfgAutoMarcar').checked && temCerteza(notas)) marcarReconhecida(corpo, { ...notas[0], todas: notas });
-    else mostrarEscolhas(corpo, notas, notas.length === 1 ? 'Acho que é esta. Toque para marcar:' : 'Qual destas é a sua? Toque para marcar:');
+    if (regioes.length === 1) { await reconhecerRegiao(worker, bitmap, regioes[0], corpo); return; }
+
+    // Várias cartas: uma linha para cada, logo abaixo da foto
+    escrever(corpo, `📋 Vi ${regioes.length} cartas nesta foto. Lendo uma por uma…`);
+    const linha = corpo.parentElement;
+    let anterior = linha;
+    const corpos = regioes.map((r) => {
+      const c = linhaResultado(miniaturaDaRegiao(bitmap, r), anterior);
+      c.parentElement.classList.add('foto-sub');
+      anterior = c.parentElement;
+      return c;
+    });
+    const contagem = { marcada: 0, duvida: 0, nada: 0 };
+    for (let i = 0; i < regioes.length; i++) {
+      escrever(corpo, `📋 Vi ${regioes.length} cartas nesta foto. Lendo a ${i + 1}ª…`);
+      contagem[await reconhecerRegiao(worker, bitmap, regioes[i], corpos[i], true)]++;
+    }
+    const partes = [`✓ ${contagem.marcada} marcada${contagem.marcada === 1 ? '' : 's'}`];
+    if (contagem.duvida) partes.push(`${contagem.duvida} para você confirmar`);
+    if (contagem.nada) partes.push(`${contagem.nada} sem reconhecer`);
+    escrever(corpo, `📋 ${regioes.length} partes da foto: ${partes.join(' · ')}.`);
   } catch (e) {
     console.error(e);
-    corpo.innerHTML = '<p class="sub"></p>';
-    corpo.firstChild.textContent = `Deu erro: ${e.message}. Verifique a internet e tente de novo.`;
+    escrever(corpo, `Deu erro: ${e.message}. Verifique a internet e tente de novo.`);
+  } finally {
+    bitmap?.close?.();
   }
 }
 
+// Reconhece uma carta (uma região da foto). Devolve 'marcada', 'duvida' ou 'nada'.
+async function reconhecerRegiao(worker, bitmap, regiao, corpo, parteDeVarias = false) {
+  escrever(corpo, '🔎 Lendo a carta…');
+  const leitura = await lerCarta(worker, bitmap, regiao);
+  escrever(corpo, '📚 Procurando no catálogo…');
+  const notas = await acharCandidatas(leitura);
+  console.debug('[foto]', leitura, notas);
+  if (!notas.length) {
+    const lido = leitura.numeros[0] ? ` (li o número ${leitura.numeros[0].numero}/${leitura.numeros[0].total})` : '';
+    if (parteDeVarias) {
+      const quase = normalizar(leitura.textoInteiro).length < 12;
+      escrever(corpo, quase ? 'Espaço vazio ou carta ilegível.' : `Não reconheci esta carta${lido}.`);
+      corpo.parentElement.classList.add('foto-nada');
+    } else {
+      escrever(corpo, `Não reconheci esta carta${lido}. Tente outra foto, mais de perto e sem reflexo. Se forem várias cartas, escolha quantas em "Cartas na foto" — ou use a busca pelo nome.`);
+    }
+    return 'nada';
+  }
+  if ($('#cfgAutoMarcar').checked && temCerteza(notas)) {
+    marcarReconhecida(corpo, { ...notas[0], todas: notas });
+    return 'marcada';
+  }
+  mostrarEscolhas(corpo, notas, notas.length === 1 ? 'Acho que é esta. Toque para marcar:' : 'Qual destas é a sua? Toque para marcar:');
+  return 'duvida';
+}
+
+// ---------- Modo escâner (câmera ao vivo) ----------
+// O Mestre vai passando as cartas na frente da câmera. Quando a imagem fica parada dentro da
+// moldura, lê a carta; se tiver certeza, marca com bipe e vibração e espera a próxima carta.
+const escaner = { stream: null, ativo: false, ocupado: false, anterior: null, paradaDesde: 0, esperarTroca: false, liberarEm: 0, lidas: 0, audio: null };
+
+function statusEscaner(texto) { $('#escStatus').textContent = texto; }
+
+async function abrirEscaner() {
+  if (!navigator.mediaDevices?.getUserMedia) { avisar('Este navegador não deixa usar a câmera aqui.'); return; }
+  if (!estado.series.length) { avisar('Espere o catálogo carregar, Mestre.'); return; }
+  try { escaner.audio ??= new (window.AudioContext || window.webkitAudioContext)(); } catch { /* sem som */ }
+  $('#modalFoto').close();
+  const m = $('#modalEscaner');
+  m.abertoEm = Date.now();
+  m.showModal();
+  escaner.lidas = 0;
+  $('#escContador').textContent = '0 cartas';
+  $('#escResultado').hidden = true;
+  statusEscaner('Abrindo a câmera…');
+  try {
+    escaner.stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1920 } }, audio: false,
+    });
+  } catch {
+    statusEscaner('Não consegui abrir a câmera. Permita o acesso à câmera nas configurações do navegador e tente de novo.');
+    return;
+  }
+  if (!m.open) { pararCamera(); return; }
+  const video = $('#escVideo');
+  video.srcObject = escaner.stream;
+  await video.play().catch(() => {});
+  const trilha = escaner.stream.getVideoTracks()[0];
+  $('#escLuz').hidden = !trilha?.getCapabilities?.()?.torch;
+  statusEscaner('Preparando o leitor…');
+  try { await prepararOCR(); } catch (e) { statusEscaner(e.message); return; }
+  if (!m.open) return;
+  escaner.ativo = true;
+  escaner.anterior = null;
+  escaner.esperarTroca = false;
+  statusEscaner('Mostre uma carta dentro da moldura e segure parada 👆');
+  lacoEscaner();
+}
+
+function pararCamera() {
+  escaner.ativo = false;
+  escaner.stream?.getTracks().forEach((t) => t.stop());
+  escaner.stream = null;
+  $('#escVideo').srcObject = null;
+}
+
+// Pedaço do vídeo que está dentro da moldura (o vídeo aparece cortado para preencher a tela)
+function areaDaMoldura(video) {
+  const rv = video.getBoundingClientRect(), rm = $('#escMoldura').getBoundingClientRect();
+  const escala = Math.max(rv.width / video.videoWidth, rv.height / video.videoHeight);
+  const offX = (rv.width - video.videoWidth * escala) / 2, offY = (rv.height - video.videoHeight * escala) / 2;
+  const folga = 0.05 * rm.width;
+  const x = Math.max(0, (rm.left - rv.left - offX - folga) / escala), y = Math.max(0, (rm.top - rv.top - offY - folga) / escala);
+  const w = Math.min(video.videoWidth - x, (rm.width + 2 * folga) / escala), h = Math.min(video.videoHeight - y, (rm.height + 2 * folga) / escala);
+  return { x, y, w, h };
+}
+
+// Miniatura cinza 24×34 para saber se a imagem está parada e se tem algo na moldura
+function amostra(video, a) {
+  const cv = amostra.cv ??= Object.assign(document.createElement('canvas'), { width: 24, height: 34 });
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(video, a.x, a.y, a.w, a.h, 0, 0, 24, 34);
+  const d = ctx.getImageData(0, 0, 24, 34).data;
+  const g = new Float32Array(24 * 34);
+  for (let i = 0; i < g.length; i++) g[i] = d[i * 4] * 0.3 + d[i * 4 + 1] * 0.59 + d[i * 4 + 2] * 0.11;
+  return g;
+}
+const diferenca = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]); return s / a.length; };
+function variacao(g) { let m = 0; for (const v of g) m += v; m /= g.length; let s = 0; for (const v of g) s += (v - m) ** 2; return Math.sqrt(s / g.length); }
+
+async function lacoEscaner() {
+  const video = $('#escVideo');
+  while (escaner.ativo) {
+    await new Promise((ok) => setTimeout(ok, 200));
+    if (!escaner.ativo || escaner.ocupado || !video.videoWidth) continue;
+    const area = areaDaMoldura(video);
+    const atual = amostra(video, area);
+    const mudou = escaner.anterior ? diferenca(atual, escaner.anterior) : 99;
+    escaner.anterior = atual;
+    if (mudou > 9) { escaner.paradaDesde = Date.now(); if (mudou > 18) escaner.esperarTroca = false; continue; }
+    if (escaner.esperarTroca && Date.now() < escaner.liberarEm) continue;
+    if (Date.now() - escaner.paradaDesde < 500) continue;
+    if (variacao(atual) < 14) { statusEscaner('Mostre uma carta dentro da moldura e segure parada 👆'); continue; } // moldura vazia
+    escaner.ocupado = true;
+    try { await lerNoEscaner(video, area); } catch (e) { console.error(e); } finally { escaner.ocupado = false; }
+  }
+}
+
+function bipe() {
+  vibrar([30, 40, 30]);
+  const a = escaner.audio;
+  if (!a) return;
+  try {
+    a.resume?.();
+    const o = a.createOscillator(), g = a.createGain();
+    o.frequency.value = 1320; g.gain.value = 0.08;
+    o.connect(g); g.connect(a.destination);
+    o.start(); o.stop(a.currentTime + 0.12);
+  } catch { /* sem som */ }
+}
+
+async function lerNoEscaner(video, area) {
+  const moldura = $('#escMoldura');
+  moldura.className = 'esc-moldura lendo';
+  statusEscaner('🔎 Lendo…');
+  const cv = document.createElement('canvas');
+  cv.width = Math.round(area.w); cv.height = Math.round(area.h);
+  cv.getContext('2d').drawImage(video, area.x, area.y, area.w, area.h, 0, 0, cv.width, cv.height);
+  const worker = await prepararOCR();
+  const leitura = await lerCarta(worker, cv);
+  const notas = await acharCandidatas(leitura);
+  if (!escaner.ativo) return;
+  escaner.esperarTroca = true; // não lê a mesma carta de novo até a imagem mudar
+  if (!notas.length) {
+    moldura.className = 'esc-moldura';
+    escaner.liberarEm = Date.now() + 1500; // tenta de novo daqui a pouco, se a carta continuar ali
+    statusEscaner('Não consegui ler. Aproxime um pouco e evite reflexo.');
+    return;
+  }
+  escaner.liberarEm = Infinity;
+  if ($('#cfgAutoMarcar').checked && temCerteza(notas)) {
+    const n = notas[0];
+    definirQtd(n.carta.id, qtdDe(n.carta.id) + 1, n.carta);
+    estado.config.fotosReconhecidas = (estado.config.fotosReconhecidas || 0) + 1;
+    salvarConfig();
+    escaner.lidas++;
+    $('#escContador').textContent = plural(escaner.lidas, 'carta', 'cartas');
+    moldura.className = 'esc-moldura ok';
+    bipe();
+    mostrarNoEscaner(n, notas, true);
+    statusEscaner('✓ Marcada! Pode passar a próxima.');
+  } else {
+    moldura.className = 'esc-moldura';
+    mostrarNoEscaner(null, notas.slice(0, 4), false);
+    statusEscaner('Fiquei em dúvida: toque na carta certa (ou passe a próxima).');
+  }
+}
+
+function mostrarNoEscaner(n, notas, marcada) {
+  const caixa = $('#escResultado');
+  caixa.hidden = false;
+  caixa.replaceChildren();
+  if (marcada) {
+    const img = criarImagemCarta(n.carta, { prioridade: true });
+    const txt = document.createElement('div');
+    txt.className = 'esc-texto';
+    txt.innerHTML = '<b></b><small></small>';
+    txt.querySelector('b').textContent = n.carta.name;
+    txt.querySelector('small').textContent = `#${n.carta.localId} · ${n.set?.name ?? ''} · agora você tem ${qtdDe(n.carta.id)}`;
+    const desfazer = document.createElement('button');
+    desfazer.className = 'esc-botao';
+    desfazer.textContent = '↶';
+    desfazer.title = 'Desfazer';
+    desfazer.onclick = () => {
+      definirQtd(n.carta.id, qtdDe(n.carta.id) - 1, n.carta);
+      escaner.lidas = Math.max(0, escaner.lidas - 1);
+      $('#escContador').textContent = plural(escaner.lidas, 'carta', 'cartas');
+      mostrarNoEscaner(null, notas.slice(0, 4), false);
+      statusEscaner('Desfeito. Era alguma destas?');
+    };
+    caixa.append(img, txt, desfazer);
+    return;
+  }
+  for (const x of notas) {
+    const b = document.createElement('button');
+    b.className = 'esc-opcao';
+    b.title = descreverCarta(x);
+    const leg = document.createElement('span');
+    leg.textContent = `#${x.carta.localId}`;
+    b.append(criarImagemCarta(x.carta, { prioridade: true }), leg);
+    b.onclick = () => {
+      definirQtd(x.carta.id, qtdDe(x.carta.id) + 1, x.carta);
+      escaner.lidas++;
+      $('#escContador').textContent = plural(escaner.lidas, 'carta', 'cartas');
+      bipe();
+      mostrarNoEscaner(x, notas, true);
+      statusEscaner('✓ Marcada! Pode passar a próxima.');
+    };
+    caixa.appendChild(b);
+  }
+}
+
+$('#btnEscaner').onclick = abrirEscaner;
+$('#modalEscaner').addEventListener('close', pararCamera);
+$('#escLuz').onclick = async () => {
+  const t = escaner.stream?.getVideoTracks()[0];
+  if (!t) return;
+  escaner.luz = !escaner.luz;
+  try { await t.applyConstraints({ advanced: [{ torch: escaner.luz }] }); } catch { /* sem lanterna */ }
+};
+
 function abrirFoto() {
+  $$('[data-por-foto]').forEach((b) => b.classList.toggle('ativo', b.dataset.porFoto === (estado.config.cartasPorFoto || 'auto')));
   const m = $('#modalFoto');
   m.abertoEm = Date.now();
   if (!m.open) m.showModal();
   prepararOCR().catch(() => {}); // já vai baixando o leitor enquanto o Mestre tira a foto
 }
+$$('[data-por-foto]').forEach((b) => {
+  b.onclick = () => {
+    estado.config.cartasPorFoto = b.dataset.porFoto;
+    salvarConfig();
+    $$('[data-por-foto]').forEach((x) => x.classList.toggle('ativo', x === b));
+  };
+});
 ['#arqFotoCamera', '#arqFotos'].forEach((sel) => {
   $(sel).onchange = (e) => { reconhecerFotos([...e.target.files]); e.target.value = ''; };
 });
