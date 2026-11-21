@@ -2,6 +2,12 @@
 
 A versão atual aparece em ⚙ Configurações, no rodapé.
 
+## v1.6.0 — Reconhecer não conta repetidas (21/11/2026)
+
+- 📷 e 🎥: se a carta reconhecida já está na coleção, só avisa "👍 Você já tem esta" (bipe mais grave) e não aumenta a quantidade.
+- O contador do escâner mostra só as cartas **novas**.
+- A quantidade de repetidas continua podendo ser ajustada no "i" de cada carta.
+
 ## v1.5.0 — Modo escâner (21/11/2026)
 
 - 🎥 **Modo escâner**: a câmera fica aberta e você vai passando as cartas na frente, uma por uma. Quando a carta fica parada dentro da moldura, ela é lida e marcada sozinha, com bipe e vibração. Ideal para dezenas de cartas.

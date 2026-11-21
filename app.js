@@ -4,7 +4,7 @@
  */
 'use strict';
 
-const VERSAO = '1.5.0'; // atualize também o CHANGELOG.md
+const VERSAO = '1.6.0'; // atualize também o CHANGELOG.md
 const API = 'https://api.tcgdex.net/v2';
 const ASSETS = 'https://assets.tcgdex.net';
 const CHAVE_COLECAO = 'pokecolecao:colecao';
@@ -1454,24 +1454,31 @@ function linhaResultado(src, depoisDe = null) {
   return corpo;
 }
 
-function marcarReconhecida(corpo, n) {
-  const id = n.carta.id;
-  definirQtd(id, qtdDe(id) + 1, n.carta);
+// Reconhecer não conta repetidas: só marca se o Mestre ainda não tem a carta.
+// Devolve true se marcou agora, false se já tinha. (Quantidade dá para mudar no "i" da carta.)
+function marcarSeNova(carta) {
   estado.config.fotosReconhecidas = (estado.config.fotosReconhecidas || 0) + 1;
   salvarConfig();
+  if (qtdDe(carta.id) > 0) return false;
+  definirQtd(carta.id, 1, carta);
+  return true;
+}
+
+function marcarReconhecida(corpo, n) {
+  const id = n.carta.id;
+  const nova = marcarSeNova(n.carta);
   vibrar(20);
   corpo.innerHTML = '';
   const img = criarImagemCarta(n.carta);
   img.classList.add('foto-carta');
   const txt = document.createElement('div');
-  txt.innerHTML = '<b class="ok">✓ Marcada!</b><p class="sub nome"></p><p class="sub qtd-txt"></p>';
+  txt.innerHTML = `<b class="ok">${nova ? '✓ Marcada!' : '👍 Você já tem esta'}</b><p class="sub nome"></p>`;
   txt.querySelector('.nome').textContent = descreverCarta(n);
-  txt.querySelector('.qtd-txt').textContent = `Agora você tem ${qtdDe(id)}.`;
   const desfazer = document.createElement('button');
-  desfazer.textContent = '↶ Desfazer';
+  desfazer.textContent = nova ? '↶ Desfazer' : '↶ Era outra?';
   desfazer.onclick = () => {
-    definirQtd(id, qtdDe(id) - 1, n.carta);
-    mostrarEscolhas(corpo, n.todas, 'Desfeito. Era outra?');
+    if (nova) definirQtd(id, 0, n.carta);
+    mostrarEscolhas(corpo, n.todas, nova ? 'Desfeito. Era outra?' : 'Qual era? Toque para marcar:');
   };
   txt.appendChild(desfazer);
   corpo.append(img, txt);
@@ -1601,7 +1608,7 @@ async function abrirEscaner() {
   m.abertoEm = Date.now();
   m.showModal();
   escaner.lidas = 0;
-  $('#escContador').textContent = '0 cartas';
+  $('#escContador').textContent = '0 novas';
   $('#escResultado').hidden = true;
   statusEscaner('Abrindo a câmera…');
   try {
@@ -1677,14 +1684,14 @@ async function lacoEscaner() {
   }
 }
 
-function bipe() {
-  vibrar([30, 40, 30]);
+function bipe(nova = true) {
+  vibrar(nova ? [30, 40, 30] : 20);
   const a = escaner.audio;
   if (!a) return;
   try {
     a.resume?.();
     const o = a.createOscillator(), g = a.createGain();
-    o.frequency.value = 1320; g.gain.value = 0.08;
+    o.frequency.value = nova ? 1320 : 660; g.gain.value = 0.08;
     o.connect(g); g.connect(a.destination);
     o.start(); o.stop(a.currentTime + 0.12);
   } catch { /* sem som */ }
@@ -1711,15 +1718,8 @@ async function lerNoEscaner(video, area) {
   escaner.liberarEm = Infinity;
   if ($('#cfgAutoMarcar').checked && temCerteza(notas)) {
     const n = notas[0];
-    definirQtd(n.carta.id, qtdDe(n.carta.id) + 1, n.carta);
-    estado.config.fotosReconhecidas = (estado.config.fotosReconhecidas || 0) + 1;
-    salvarConfig();
-    escaner.lidas++;
-    $('#escContador').textContent = plural(escaner.lidas, 'carta', 'cartas');
     moldura.className = 'esc-moldura ok';
-    bipe();
-    mostrarNoEscaner(n, notas, true);
-    statusEscaner('✓ Marcada! Pode passar a próxima.');
+    registrarNoEscaner(n, notas, marcarSeNova(n.carta));
   } else {
     moldura.className = 'esc-moldura';
     mostrarNoEscaner(null, notas.slice(0, 4), false);
@@ -1727,7 +1727,16 @@ async function lerNoEscaner(video, area) {
   }
 }
 
-function mostrarNoEscaner(n, notas, marcada) {
+// Depois de reconhecer: conta as novas, avisa e mostra a carta
+function registrarNoEscaner(n, notas, nova) {
+  if (nova) escaner.lidas++;
+  $('#escContador').textContent = plural(escaner.lidas, 'nova', 'novas');
+  bipe(nova);
+  mostrarNoEscaner(n, notas, true, nova);
+  statusEscaner(nova ? '✓ Marcada! Pode passar a próxima.' : '👍 Você já tem esta. Pode passar a próxima.');
+}
+
+function mostrarNoEscaner(n, notas, marcada, nova = true) {
   const caixa = $('#escResultado');
   caixa.hidden = false;
   caixa.replaceChildren();
@@ -1737,17 +1746,19 @@ function mostrarNoEscaner(n, notas, marcada) {
     txt.className = 'esc-texto';
     txt.innerHTML = '<b></b><small></small>';
     txt.querySelector('b').textContent = n.carta.name;
-    txt.querySelector('small').textContent = `#${n.carta.localId} · ${n.set?.name ?? ''} · agora você tem ${qtdDe(n.carta.id)}`;
+    txt.querySelector('small').textContent = `#${n.carta.localId} · ${n.set?.name ?? ''} · ${nova ? 'marcada agora' : 'você já tinha'}`;
     const desfazer = document.createElement('button');
     desfazer.className = 'esc-botao';
     desfazer.textContent = '↶';
-    desfazer.title = 'Desfazer';
+    desfazer.title = nova ? 'Desfazer' : 'Era outra carta?';
     desfazer.onclick = () => {
-      definirQtd(n.carta.id, qtdDe(n.carta.id) - 1, n.carta);
-      escaner.lidas = Math.max(0, escaner.lidas - 1);
-      $('#escContador').textContent = plural(escaner.lidas, 'carta', 'cartas');
+      if (nova) {
+        definirQtd(n.carta.id, 0, n.carta);
+        escaner.lidas = Math.max(0, escaner.lidas - 1);
+        $('#escContador').textContent = plural(escaner.lidas, 'nova', 'novas');
+      }
       mostrarNoEscaner(null, notas.slice(0, 4), false);
-      statusEscaner('Desfeito. Era alguma destas?');
+      statusEscaner(nova ? 'Desfeito. Era alguma destas?' : 'Era alguma destas?');
     };
     caixa.append(img, txt, desfazer);
     return;
@@ -1759,14 +1770,7 @@ function mostrarNoEscaner(n, notas, marcada) {
     const leg = document.createElement('span');
     leg.textContent = `#${x.carta.localId}`;
     b.append(criarImagemCarta(x.carta, { prioridade: true }), leg);
-    b.onclick = () => {
-      definirQtd(x.carta.id, qtdDe(x.carta.id) + 1, x.carta);
-      escaner.lidas++;
-      $('#escContador').textContent = plural(escaner.lidas, 'carta', 'cartas');
-      bipe();
-      mostrarNoEscaner(x, notas, true);
-      statusEscaner('✓ Marcada! Pode passar a próxima.');
-    };
+    b.onclick = () => registrarNoEscaner(x, notas, marcarSeNova(x.carta));
     caixa.appendChild(b);
   }
 }
