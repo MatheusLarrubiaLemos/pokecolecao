@@ -2,6 +2,20 @@
 
 A versão atual aparece em ⚙ Configurações, no rodapé.
 
+## v1.10.0 — Câmera sem zoom e guia de enquadramento (23/11/2026)
+
+- **Sem o zoom**: a câmera mostra a imagem inteira, no formato 4:3 do sensor. Antes as bordas eram cortadas e parecia zoom. O site também pede o zoom mínimo e o foco automático contínuo quando o celular deixa.
+- **Guia de enquadramento**: 9 espaços desenhados por cima da câmera, no formato de uma página de fichário. Carta solta vai no espaço do meio; página inteira, encaixe nos 9. Depois da leitura, cada espaço fica:
+  - **verde**: carta marcada;
+  - **amarelo**: carta para confirmar;
+  - **cinza**: carta virada (verso).
+- **🔄 Ler de novo** foi para baixo, à esquerda, logo acima do painel das cartas, onde o polegar alcança.
+- **Não inventa carta**: o palpite só aparece se o desenho for bem parecido **e** ficar na frente das outras opções, ou se o número impresso confirmar. Se não achar nada parecido, não sugere nada.
+- **Verso** reconhecido também numa carta solta na frente da câmera, com o aviso "vire a carta".
+- **Lê de novo sozinho**: se sobrou carta sem reconhecer e a imagem continua parada, o escâner tenta mais até 2 vezes e junta o que achou. O aviso conta a página inteira, por exemplo "✓ 6 novas · 3 viradas".
+- A mesma carta lida de novo não repete no painel.
+- O celular baixa o código novo assim que sai versão nova, sem ficar preso na antiga.
+
 ## v1.9.1 — Não inventa carta (23/11/2026)
 
 - **Carta virada (verso azul com a Poké Ball)** é reconhecida e pulada, em vez de virar um palpite errado.
