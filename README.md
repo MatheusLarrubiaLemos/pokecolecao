@@ -20,16 +20,13 @@ Site simples para controlar a sua coleção de cartas Pokémon TCG.
 - Em ⚙, escolha seu **tipo favorito** (Fogo, Água, Planta, Elétrico, Psíquico…) e o app muda de cor.
 - Tema **claro, escuro ou automático**.
 
-## Reconhecer por foto 📷
+## Escanear 📷
 
-- **Modo escâner** (o jeito mais rápido para muitas cartas): toque em 📷 → **🎥 Modo escâner**, deixe a câmera aberta e vá passando as cartas na frente, uma por uma. Cada carta reconhecida é marcada sozinha, com bipe.
-
-- Toque em **📷** (no celular, a Poké Ball **Escanear** da barra de baixo) e tire foto da carta (em pé, inteira, com boa luz) — ou escolha várias fotos de uma vez.
-- Dá para fotografar **uma página inteira do fichário**: o site acha cada carta sozinho (1 carta, 2×2 ou 3×3).
-- No escâner, o botão **📄 Página 3×3** mostra uma moldura com 9 bolsos: encaixe a página, segure parado e vire a página.
-- O reconhecimento compara o **desenho** da carta com um banco de todas as cartas (`dados/assinaturas.txt`) — funciona até com cartas em japonês de arte igual. Quando sair coleção nova, atualize o banco com `node ferramentas/gerar-assinaturas.js`.
-- O site lê o nome e o número impresso (ex: `025/198`) e marca a carta sozinho. Se ficar em dúvida, mostra opções para você escolher; dá para desfazer.
-- Tudo acontece no seu aparelho (a foto não é enviada a nenhum servidor). Na primeira vez baixa o leitor de texto (~5 MB).
+- Toque em **Escanear** (a Poké Ball da barra de baixo, ou 📷 no topo do PC): a câmera abre.
+- Aponte para **uma carta solta** ou para **uma página inteira do fichário** e segure parado: o site descobre sozinho o que é, reconhece as cartas e marca as que tiver certeza (com bipe). Troque a carta ou vire a página e continue.
+- Quer mandar fotos prontas? Dentro da câmera, toque em **🖼 Galeria** (dá para escolher várias).
+- Cartas que você já tem não aumentam a quantidade. As de dúvida aparecem em amarelo: toque e escolha a certa. Toque numa marcada para desfazer.
+- O reconhecimento compara o **desenho** da carta com um banco de todas as cartas (`dados/assinaturas.txt`) — funciona até com cartas em japonês de arte igual. Tudo acontece no aparelho. Quando sair coleção nova, atualize o banco com `node ferramentas/gerar-assinaturas.js`.
 
 ## No celular
 

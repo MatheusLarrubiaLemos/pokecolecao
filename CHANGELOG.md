@@ -2,6 +2,14 @@
 
 A versão atual aparece em ⚙ Configurações, no rodapé.
 
+## v1.8.0 — Um botão só: Escanear (23/11/2026)
+
+- **Escanear** abre direto a câmera — sem janela intermediária, sem escolher modo. Aponte para uma carta solta ou para uma página inteira do fichário: o site descobre sozinho o que é e lê tudo o que aparece.
+- Dentro da câmera tem **🖼 Galeria** para mandar fotos (uma ou várias de uma vez), com o mesmo reconhecimento.
+- Saíram os botões "1 carta" / "Página 3×3" e a janela de fotos. A opção "Marcar sozinho quando tiver certeza" foi para ⚙.
+- Toque numa carta do painel para escolher outra ou desfazer.
+- Mais rápido: carta solta na câmera em ~1 s.
+
 ## v1.7.0 — Reconhece pelo desenho da carta (23/11/2026)
 
 - 📷 e 🎥 agora reconhecem as cartas **pelo desenho**, como os apps de escâner de verdade: o site compara a arte da carta com um banco de "impressões digitais" de todas as ~15.600 cartas físicas (`dados/assinaturas.txt`, baixado só quando o reconhecimento é usado). A leitura do número entra só para desempatar.

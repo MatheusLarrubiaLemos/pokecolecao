@@ -4,7 +4,7 @@
  */
 'use strict';
 
-const VERSAO = '1.7.0'; // atualize também o CHANGELOG.md
+const VERSAO = '1.8.0'; // atualize também o CHANGELOG.md
 const API = 'https://api.tcgdex.net/v2';
 const ASSETS = 'https://assets.tcgdex.net';
 const CHAVE_COLECAO = 'pokecolecao:colecao';
@@ -704,7 +704,7 @@ function lancamentosHTML(e) {
 }
 
 function acao(qual) {
-  if (qual === 'foto') abrirFoto();
+  if (qual === 'foto') abrirEscaner();
   else if (qual === 'colecoes') abrirMenu();
   else if (qual === 'backup') exportarBackup();
   else if (qual === 'busca') irPara('#busca');
@@ -1060,6 +1060,7 @@ function aplicarAparencia() {
 function abrirConfig() {
   $('#cfgIdioma').value = estado.config.idioma;
   $('#cfgTema').value = estado.config.tema;
+  $('#cfgAutoMarcar').checked = autoMarcar();
   desenharTipos();
   $('#txtUltimoBackup').textContent = estado.config.ultimoBackup
     ? `Último backup: ${dataBR(estado.config.ultimoBackup)}.` : 'Você ainda não fez nenhum backup.';
@@ -1087,6 +1088,7 @@ $('#cfgTipos').onclick = (e) => {
   vibrar(10);
 };
 $('#cfgTema').onchange = (e) => { estado.config.tema = e.target.value; salvarConfig(); aplicarAparencia(); };
+$('#cfgAutoMarcar').onchange = (e) => { estado.config.autoMarcar = e.target.checked; salvarConfig(); };
 $('#cfgIdioma').onchange = (e) => {
   estado.config.idioma = e.target.value;
   salvarConfig();
@@ -1384,15 +1386,6 @@ async function acharPagina3x3(bitmap, inicio = null) {
   return regioes;
 }
 
-// Miniatura de uma região (para mostrar qual carta da foto é cada resultado)
-function miniaturaDaRegiao(bitmap, r) {
-  const cv = document.createElement('canvas');
-  const sw = r.w * bitmap.width, sh = r.h * bitmap.height;
-  cv.width = 160; cv.height = Math.round(160 * sh / sw);
-  cv.getContext('2d').drawImage(bitmap, r.x * bitmap.width, r.y * bitmap.height, sw, sh, 0, 0, cv.width, cv.height);
-  return cv.toDataURL('image/jpeg', 0.75);
-}
-
 // ---------- Impressão digital do desenho da carta ----------
 // Como os escâneres de cartas fazem: em vez de ler texto, compara o DESENHO da carta com um banco
 // de "impressões digitais" (hash perceptual) de todas as cartas, gerado antes (dados/assinaturas.txt).
@@ -1624,22 +1617,6 @@ function descreverCarta(n) {
   return `${n.carta.name} · #${n.carta.localId}${n.set ? ` · ${n.set.name}` : ''}`;
 }
 
-function linhaResultado(src, depoisDe = null) {
-  const el = document.createElement('div');
-  el.className = 'foto-item';
-  const miniatura = document.createElement('img');
-  miniatura.className = 'foto-mini';
-  miniatura.src = src;
-  miniatura.alt = 'Sua foto';
-  if (src.startsWith('blob:')) miniatura.onload = () => URL.revokeObjectURL(src);
-  const corpo = document.createElement('div');
-  corpo.className = 'foto-corpo';
-  corpo.innerHTML = '<p class="sub">Na fila…</p>';
-  el.append(miniatura, corpo);
-  if (depoisDe) depoisDe.after(el); else $('#fotoResultados').prepend(el);
-  return corpo;
-}
-
 // Reconhecer não conta repetidas: só marca se o Mestre ainda não tem a carta.
 // Devolve true se marcou agora, false se já tinha. (Quantidade dá para mudar no "i" da carta.)
 function marcarSeNova(carta) {
@@ -1650,301 +1627,105 @@ function marcarSeNova(carta) {
   return true;
 }
 
-function marcarReconhecida(corpo, n) {
-  const id = n.carta.id;
-  const nova = marcarSeNova(n.carta);
-  vibrar(20);
-  corpo.innerHTML = '';
-  const img = criarImagemCarta(n.carta);
-  img.classList.add('foto-carta');
-  const txt = document.createElement('div');
-  txt.innerHTML = `<b class="ok">${nova ? '✓ Marcada!' : '👍 Você já tem esta'}</b><p class="sub nome"></p>`;
-  txt.querySelector('.nome').textContent = descreverCarta(n);
-  const desfazer = document.createElement('button');
-  desfazer.textContent = nova ? '↶ Desfazer' : '↶ Era outra?';
-  desfazer.onclick = () => {
-    if (nova) definirQtd(id, 0, n.carta);
-    mostrarEscolhas(corpo, n.todas, nova ? 'Desfeito. Era outra?' : 'Qual era? Toque para marcar:');
-  };
-  txt.appendChild(desfazer);
-  corpo.append(img, txt);
+// A maior carta (63×88) que cabe na imagem, centralizada: ponto de partida para uma carta solta
+function cartaGrandeNaFoto(fonte) {
+  const h = Math.min(fonte.height, fonte.width * 88 / 63), w = h * 63 / 88;
+  return { x: (fonte.width - w) / 2, y: (fonte.height - h) / 2, w, h };
 }
 
-function mostrarEscolhas(corpo, notas, titulo) {
-  corpo.innerHTML = '';
-  const p = document.createElement('p');
-  p.className = 'sub';
-  p.textContent = titulo;
-  corpo.appendChild(p);
-  const lista = document.createElement('div');
-  lista.className = 'foto-opcoes';
-  for (const n of notas) {
-    const b = document.createElement('button');
-    b.className = 'foto-opcao';
-    b.title = descreverCarta(n);
-    const leg = document.createElement('span');
-    leg.textContent = `#${n.carta.localId} ${n.set?.name ?? ''}`;
-    b.append(criarImagemCarta(n.carta), leg);
-    b.onclick = () => marcarReconhecida(corpo, { ...n, todas: notas });
-    lista.appendChild(b);
-  }
-  corpo.appendChild(lista);
+const autoMarcar = () => estado.config.autoMarcar !== false;
+
+// Marca o resultado se tiver certeza (e se o Mestre deixou marcar sozinho)
+function registrarResultado(r) {
+  if (r.certeza && autoMarcar()) return { ...r, marcada: true, nova: marcarSeNova(r.notas[0].carta) };
+  return { ...r, marcada: false };
 }
 
-let filaFotos = Promise.resolve();
-function reconhecerFotos(arquivos) {
-  for (const arquivo of arquivos) {
-    const corpo = linhaResultado(URL.createObjectURL(arquivo));
-    filaFotos = filaFotos.then(() => reconhecerFoto(arquivo, corpo));
-  }
-  filaFotos = filaFotos.then(() => { $('#fotoStatus').textContent = ''; });
-}
-
-function escrever(corpo, texto) {
-  corpo.innerHTML = '<p class="sub"></p>';
-  corpo.firstChild.textContent = texto;
-}
-
-async function reconhecerFoto(arquivo, corpo) {
-  const status = $('#fotoStatus');
-  let bitmap;
-  try {
-    if (!estado.series.length) { escrever(corpo, 'Espere o catálogo de coleções carregar e tente de novo.'); return; }
-    escrever(corpo, 'Preparando o leitor…');
-    aoProgredirOCR = (m) => {
-      status.textContent = `Baixando o leitor de texto (só na 1ª vez)… ${Math.round((m.progress ?? 0) * 100)}%`;
-    };
-    const worker = await prepararOCR();
-    aoProgredirOCR = null;
-    status.textContent = '';
-    bitmap = await createImageBitmap(arquivo);
-    let regioes;
-    {
-      escrever(corpo, '🔎 Procurando as cartas na foto…');
-      // 1º: é uma carta grande sozinha? (rápido) — 2º: procura as cartas de uma página de fichário
-      const grande = cartaGrandeNaFoto(bitmap);
-      const unica = await identificar(bitmap, grande, { procurarTamanho: true });
-      const r = unica?.retangulo;
-      const sozinha = r && (r.w > 0.62 * bitmap.width || r.h > 0.62 * bitmap.height); // ocupa a foto quase toda
-      if (unica?.certeza && sozinha) { await reconhecerRegiao(worker, bitmap, FOTO_INTEIRA, corpo, false, unica); return; }
-      regioes = (unica?.certeza ? await acharPagina3x3(bitmap, r) : null) ?? (await acharPagina3x3(bitmap))
-        ?? [FOTO_INTEIRA];
-      if (regioes.length === 1 && unica?.certeza) { await reconhecerRegiao(worker, bitmap, FOTO_INTEIRA, corpo, false, unica); return; }
+// Reconhece TODAS as cartas de uma imagem (quadro da câmera ou foto da galeria), sem o Mestre escolher
+// nada: primeiro vê se é uma carta solta grande; se não, procura as cartas de uma página de fichário.
+// Devolve [{ notas, certeza, marcada, nova }] — só das partes onde achou alguma carta.
+async function reconhecerImagem(fonte, aoAvisar = () => {}) {
+  aoAvisar('🔎 Procurando as cartas…');
+  const ocr = async (regiao) => lerCarta(await prepararOCR(), fonte, regiao);
+  const unica = await identificar(fonte, cartaGrandeNaFoto(fonte), { procurarTamanho: true });
+  const r = unica.retangulo;
+  const sozinha = r && r.d < 99 && (r.w > 0.62 * fonte.width || r.h > 0.62 * fonte.height); // ocupa a imagem quase toda
+  const regioes = unica.certeza && sozinha ? null
+    : (unica.certeza ? await acharPagina3x3(fonte, r) : null) ?? await acharPagina3x3(fonte);
+  if (!regioes) {
+    // uma carta solta: se o desenho deixou dúvida, lê o número para desempatar
+    let res = unica;
+    if (!res.certeza && res.notas.length) {
+      aoAvisar('🔎 Lendo o número da carta…');
+      res = await identificar(fonte, cartaGrandeNaFoto(fonte), { procurarTamanho: true, lerTexto: () => ocr(FOTO_INTEIRA) });
     }
-    if (regioes.length === 1) { await reconhecerRegiao(worker, bitmap, regioes[0], corpo); return; }
-
-    // Várias cartas: uma linha para cada, logo abaixo da foto
-    escrever(corpo, `📋 Vi ${regioes.length} cartas nesta foto. Lendo uma por uma…`);
-    const linha = corpo.parentElement;
-    let anterior = linha;
-    const corpos = regioes.map((r) => {
-      const c = linhaResultado(miniaturaDaRegiao(bitmap, r), anterior);
-      c.parentElement.classList.add('foto-sub');
-      anterior = c.parentElement;
-      return c;
-    });
-    const contagem = { marcada: 0, duvida: 0, nada: 0 };
-    for (let i = 0; i < regioes.length; i++) {
-      escrever(corpo, `📋 Vi ${regioes.length} cartas nesta foto. Lendo a ${i + 1}ª…`);
-      contagem[await reconhecerRegiao(worker, bitmap, regioes[i], corpos[i], true)]++;
-    }
-    const partes = [`✓ ${contagem.marcada} marcada${contagem.marcada === 1 ? '' : 's'}`];
-    if (contagem.duvida) partes.push(`${contagem.duvida} para você confirmar`);
-    if (contagem.nada) partes.push(`${contagem.nada} sem reconhecer`);
-    escrever(corpo, `📋 ${regioes.length} partes da foto: ${partes.join(' · ')}.`);
-  } catch (e) {
-    console.error(e);
-    escrever(corpo, `Deu erro: ${e.message}. Verifique a internet e tente de novo.`);
-  } finally {
-    bitmap?.close?.();
+    return res.notas.length ? [registrarResultado(res)] : [];
   }
+  const resultados = [];
+  for (let i = 0; i < regioes.length; i++) {
+    aoAvisar(regioes.length > 1 ? `🔎 Lendo a carta ${i + 1} de ${regioes.length}…` : '🔎 Lendo a carta…');
+    const reg = regioes[i];
+    const carta = { x: reg.x * fonte.width, y: reg.y * fonte.height, w: reg.w * fonte.width, h: reg.h * fonte.height };
+    if (variacao(amostra(fonte, carta)) < 12) continue; // bolso vazio
+    let res = await identificar(fonte, carta);
+    if (!res.certeza && res.notas.length) res = await identificar(fonte, carta, { lerTexto: () => ocr(reg) });
+    if (res.notas.length) resultados.push(registrarResultado(res));
+  }
+  return resultados;
 }
 
-// Reconhece uma carta (uma região da foto). Devolve 'marcada', 'duvida' ou 'nada'.
-// A maior carta (63×88) que cabe na foto, centralizada: ponto de partida para foto de uma carta só
-function cartaGrandeNaFoto(bitmap) {
-  const h = Math.min(bitmap.height, bitmap.width * 88 / 63), w = h * 63 / 88;
-  return { x: (bitmap.width - w) / 2, y: (bitmap.height - h) / 2, w, h };
+function resumoResultados(resultados) {
+  const novas = resultados.filter((r) => r.marcada && r.nova).length;
+  const tinha = resultados.filter((r) => r.marcada && !r.nova).length;
+  const duvida = resultados.filter((r) => !r.marcada).length;
+  const partes = [];
+  if (novas) partes.push(`✓ ${plural(novas, 'nova', 'novas')}`);
+  if (tinha) partes.push(`👍 ${numero(tinha)} já tinha`);
+  if (duvida) partes.push(`${numero(duvida)} para confirmar (toque nela${duvida === 1 ? '' : 's'})`);
+  return partes.join(' · ');
 }
 
-async function reconhecerRegiao(worker, bitmap, regiao, corpo, parteDeVarias = false, jaIdentificado = null) {
-  escrever(corpo, '🔎 Comparando o desenho…');
-  const inteira = regiao === FOTO_INTEIRA;
-  // ponto de partida: a região (carta de fichário) ou a maior carta que cabe na foto
-  const carta = inteira ? cartaGrandeNaFoto(bitmap)
-    : { x: regiao.x * bitmap.width, y: regiao.y * bitmap.height, w: regiao.w * bitmap.width, h: regiao.h * bitmap.height };
-  const { certeza, notas } = jaIdentificado ?? await identificar(bitmap, carta, {
-    procurarTamanho: inteira,
-    lerTexto: async () => { escrever(corpo, '🔎 Lendo o número da carta…'); return lerCarta(worker, bitmap, regiao); },
-  });
-  console.debug('[foto]', notas);
-  if (!notas.length) {
-    if (parteDeVarias) {
-      escrever(corpo, 'Espaço vazio ou carta que não reconheci.');
-      corpo.parentElement.classList.add('foto-nada');
-    } else {
-      escrever(corpo, 'Não reconheci esta carta. Tente outra foto, de frente, sem reflexo e com a carta ocupando boa parte da foto. Para páginas do fichário, use 🎥 Modo escâner → Página 3×3.');
-    }
-    return 'nada';
-  }
-  if ($('#cfgAutoMarcar').checked && certeza) {
-    marcarReconhecida(corpo, { ...notas[0], todas: notas });
-    return 'marcada';
-  }
-  mostrarEscolhas(corpo, notas, notas.length === 1 ? 'Acho que é esta. Toque para marcar:' : 'Qual destas é a sua? Toque para marcar:');
-  return 'duvida';
-}
-
-// ---------- Modo escâner (câmera ao vivo) ----------
-// O Mestre vai passando as cartas na frente da câmera. Quando a imagem fica parada dentro da
-// moldura, lê a carta; se tiver certeza, marca com bipe e vibração e espera a próxima carta.
-const escaner = { modo: 'carta', stream: null, ativo: false, ocupado: false, anterior: null, paradaDesde: 0, esperarTroca: false, liberarEm: 0, lidas: 0, audio: null };
+// ---------- Escâner (câmera ao vivo + galeria) ----------
+// Um botão só: a câmera fica aberta e o Mestre aponta para uma carta ou para uma página do fichário.
+// Quando a imagem fica parada, lê tudo o que aparece. Também dá para mandar fotos da galeria.
+const escaner = { stream: null, ativo: false, ocupado: false, anterior: null, paradaDesde: 0, esperarTroca: false, liberarEm: 0, lidas: 0, audio: null, resultados: [] };
+const TEXTO_ESPERANDO = 'Aponte para uma carta ou para uma página do fichário e segure parado 👆';
 
 function statusEscaner(texto) { $('#escStatus').textContent = texto; }
+function atualizarContador() { $('#escContador').textContent = plural(escaner.lidas, 'nova', 'novas'); }
 
 async function abrirEscaner() {
-  if (!navigator.mediaDevices?.getUserMedia) { avisar('Este navegador não deixa usar a câmera aqui.'); return; }
-  if (!estado.series.length) { avisar('Espere o catálogo carregar, Mestre.'); return; }
   try { escaner.audio ??= new (window.AudioContext || window.webkitAudioContext)(); } catch { /* sem som */ }
-  $('#modalFoto').close();
   const m = $('#modalEscaner');
   m.abertoEm = Date.now();
-  m.showModal();
+  if (!m.open) m.showModal();
   escaner.lidas = 0;
-  $('#escContador').textContent = '0 novas';
+  escaner.resultados = [];
+  atualizarContador();
   $('#escResultado').hidden = true;
+  $('#escMira').className = 'esc-mira';
+  if (!estado.series.length) { statusEscaner('Espere o catálogo de coleções carregar, Mestre.'); return; }
+  carregarAssinaturas().catch(() => {}); // já vai baixando o banco de desenhos
+  if (!navigator.mediaDevices?.getUserMedia) { statusEscaner('Este navegador não deixa usar a câmera aqui. Use 🖼 Galeria para mandar fotos.'); return; }
   statusEscaner('Abrindo a câmera…');
   try {
     escaner.stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1920 } }, audio: false,
     });
   } catch {
-    statusEscaner('Não consegui abrir a câmera. Permita o acesso à câmera nas configurações do navegador e tente de novo.');
+    statusEscaner('Não consegui abrir a câmera. Permita o acesso nas configurações do navegador — ou use 🖼 Galeria para mandar fotos.');
     return;
   }
   if (!m.open) { pararCamera(); return; }
   const video = $('#escVideo');
   video.srcObject = escaner.stream;
   await video.play().catch(() => {});
-  const trilha = escaner.stream.getVideoTracks()[0];
-  $('#escLuz').hidden = !trilha?.getCapabilities?.()?.torch;
-  statusEscaner('Preparando o leitor…');
-  try { await prepararOCR(); } catch (e) { statusEscaner(e.message); return; }
-  if (!m.open) return;
+  $('#escLuz').hidden = !escaner.stream.getVideoTracks()[0]?.getCapabilities?.()?.torch;
   escaner.ativo = true;
   escaner.anterior = null;
   escaner.esperarTroca = false;
-  statusEscaner(textoEsperando());
+  statusEscaner(TEXTO_ESPERANDO);
   lacoEscaner();
-}
-
-const textoEsperando = () => (escaner.modo === 'pagina'
-  ? 'Encaixe a página do fichário nos 9 espaços e segure parado 👆'
-  : 'Mostre uma carta dentro da moldura e segure parada 👆');
-
-function trocarModoEscaner() {
-  escaner.modo = escaner.modo === 'pagina' ? 'carta' : 'pagina';
-  const pagina = escaner.modo === 'pagina';
-  $('#escGrade').hidden = !pagina;
-  $('#escMoldura').hidden = pagina;
-  $('#escModo').textContent = pagina ? '🃏 1 carta' : '📄 Página 3×3';
-  $('#modalEscaner').classList.toggle('pagina', pagina);
-  $$('#escGrade .esc-slot').forEach((el) => { el.className = 'esc-slot'; });
-  $('#escResultado').hidden = true;
-  escaner.anterior = null;
-  escaner.esperarTroca = false;
-  statusEscaner(textoEsperando());
-}
-
-// Página 3×3: lê as 9 cartas de uma vez pelo desenho; as duvidosas também pelo número impresso
-async function lerPagina(video, area) {
-  const slots = $$('#escGrade .esc-slot');
-  statusEscaner('🔎 Lendo a página…');
-  const cv = document.createElement('canvas');
-  cv.width = Math.round(area.w); cv.height = Math.round(area.h);
-  cv.getContext('2d').drawImage(video, area.x, area.y, area.w, area.h, 0, 0, cv.width, cv.height);
-  const resultados = [];
-  const contagem = { novas: 0, tinha: 0, duvida: 0 };
-  for (let i = 0; i < slots.length; i++) {
-    if (!escaner.ativo) return;
-    const s = areaDaMoldura(video, slots[i], 0);
-    const carta = { x: s.x - area.x, y: s.y - area.y, w: s.w, h: s.h };
-    slots[i].className = 'esc-slot lendo';
-    if (variacao(amostra(cv, carta)) < 12) { slots[i].className = 'esc-slot vazio'; resultados.push(null); continue; } // bolso vazio
-    let r = await identificar(cv, carta);
-    if (!r.certeza && r.notas.length) {
-      const regiao = { x: carta.x / cv.width, y: carta.y / cv.height, w: carta.w / cv.width, h: carta.h / cv.height };
-      r = await identificar(cv, carta, { lerTexto: async () => lerCarta(await prepararOCR(), cv, regiao) });
-    }
-    if (r.certeza && $('#cfgAutoMarcar').checked) {
-      const nova = marcarSeNova(r.notas[0].carta);
-      contagem[nova ? 'novas' : 'tinha']++;
-      if (nova) escaner.lidas++;
-      slots[i].className = 'esc-slot ok';
-      resultados.push({ ...r, marcada: true, nova });
-    } else if (r.notas.length) {
-      contagem.duvida++;
-      slots[i].className = 'esc-slot duvida';
-      resultados.push({ ...r, marcada: false });
-    } else {
-      slots[i].className = 'esc-slot nada';
-      resultados.push(null);
-    }
-  }
-  escaner.esperarTroca = true; // espera virar a página
-  escaner.liberarEm = Infinity;
-  $('#escContador').textContent = plural(escaner.lidas, 'nova', 'novas');
-  bipe(contagem.novas > 0);
-  mostrarPagina(resultados);
-  const partes = [`✓ ${contagem.novas} nova${contagem.novas === 1 ? '' : 's'}`];
-  if (contagem.tinha) partes.push(`${contagem.tinha} já tinha`);
-  if (contagem.duvida) partes.push(`${contagem.duvida} para confirmar (toque nelas)`);
-  statusEscaner(`${partes.join(' · ')}. Vire a página!`);
-}
-
-// Painel com as cartas da página; as duvidosas abrem as opções
-function mostrarPagina(resultados) {
-  const caixa = $('#escResultado');
-  caixa.hidden = false;
-  caixa.replaceChildren();
-  resultados.forEach((r, i) => {
-    if (!r) return;
-    const b = document.createElement('button');
-    b.className = `esc-opcao ${r.marcada ? 'ok' : 'duvida'}`;
-    const leg = document.createElement('span');
-    leg.textContent = r.marcada ? (r.nova ? '✓ nova' : '👍 tinha') : '? toque';
-    b.append(criarImagemCarta(r.notas[0].carta, { prioridade: true }), leg);
-    b.title = descreverCarta(r.notas[0]);
-    if (!r.marcada) {
-      b.onclick = () => {
-        caixa.replaceChildren();
-        const voltar = document.createElement('button');
-        voltar.className = 'esc-botao';
-        voltar.textContent = '←';
-        voltar.onclick = () => mostrarPagina(resultados);
-        caixa.appendChild(voltar);
-        for (const x of r.notas.slice(0, 4)) {
-          const o = document.createElement('button');
-          o.className = 'esc-opcao';
-          const l = document.createElement('span');
-          l.textContent = `#${x.carta.localId}`;
-          o.append(criarImagemCarta(x.carta, { prioridade: true }), l);
-          o.title = descreverCarta(x);
-          o.onclick = () => {
-            const nova = marcarSeNova(x.carta);
-            if (nova) escaner.lidas++;
-            $('#escContador').textContent = plural(escaner.lidas, 'nova', 'novas');
-            bipe(nova);
-            resultados[i] = { notas: [x], marcada: true, nova };
-            $$('#escGrade .esc-slot')[i].className = 'esc-slot ok';
-            mostrarPagina(resultados);
-          };
-          caixa.appendChild(o);
-        }
-      };
-    }
-    caixa.appendChild(b);
-  });
 }
 
 function pararCamera() {
@@ -1954,22 +1735,19 @@ function pararCamera() {
   $('#escVideo').srcObject = null;
 }
 
-// Pedaço do vídeo que está debaixo de um elemento da tela (o vídeo aparece cortado para preencher a tela)
-function areaDaMoldura(video, el = $(escaner.modo === 'pagina' ? '#escGrade' : '#escMoldura'), folgaFrac = 0.05) {
-  const rv = video.getBoundingClientRect(), rm = el.getBoundingClientRect();
+// Parte do vídeo que aparece na tela (o vídeo é cortado para preencher a tela)
+function areaVisivel(video) {
+  const rv = video.getBoundingClientRect();
   const escala = Math.max(rv.width / video.videoWidth, rv.height / video.videoHeight);
-  const offX = (rv.width - video.videoWidth * escala) / 2, offY = (rv.height - video.videoHeight * escala) / 2;
-  const folga = folgaFrac * rm.width;
-  const x = Math.max(0, (rm.left - rv.left - offX - folga) / escala), y = Math.max(0, (rm.top - rv.top - offY - folga) / escala);
-  const w = Math.min(video.videoWidth - x, (rm.width + 2 * folga) / escala), h = Math.min(video.videoHeight - y, (rm.height + 2 * folga) / escala);
-  return { x, y, w, h };
+  const w = Math.min(video.videoWidth, rv.width / escala), h = Math.min(video.videoHeight, rv.height / escala);
+  return { x: (video.videoWidth - w) / 2, y: (video.videoHeight - h) / 2, w, h };
 }
 
-// Miniatura cinza 24×34 para saber se a imagem está parada e se tem algo na moldura
-function amostra(video, a) {
+// Miniatura cinza 24×34 de um pedaço da imagem: serve para ver se está parada e se tem algo ali
+function amostra(fonte, a) {
   const cv = amostra.cv ??= Object.assign(document.createElement('canvas'), { width: 24, height: 34 });
   const ctx = cv.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(video, a.x, a.y, a.w, a.h, 0, 0, 24, 34);
+  ctx.drawImage(fonte, a.x, a.y, a.w, a.h, 0, 0, 24, 34);
   const d = ctx.getImageData(0, 0, 24, 34).data;
   const g = new Float32Array(24 * 34);
   for (let i = 0; i < g.length; i++) g[i] = d[i * 4] * 0.3 + d[i * 4 + 1] * 0.59 + d[i * 4 + 2] * 0.11;
@@ -1983,17 +1761,67 @@ async function lacoEscaner() {
   while (escaner.ativo) {
     await new Promise((ok) => setTimeout(ok, 200));
     if (!escaner.ativo || escaner.ocupado || !video.videoWidth) continue;
-    const area = areaDaMoldura(video);
+    const area = areaVisivel(video);
     const atual = amostra(video, area);
     const mudou = escaner.anterior ? diferenca(atual, escaner.anterior) : 99;
     escaner.anterior = atual;
-    if (mudou > 9) { escaner.paradaDesde = Date.now(); if (mudou > 18) escaner.esperarTroca = false; continue; }
+    if (mudou > 8) { escaner.paradaDesde = Date.now(); if (mudou > 16) escaner.esperarTroca = false; continue; }
     if (escaner.esperarTroca && Date.now() < escaner.liberarEm) continue;
-    if (Date.now() - escaner.paradaDesde < 500) continue;
-    if (variacao(atual) < 14) { statusEscaner(textoEsperando()); continue; } // moldura vazia
+    if (Date.now() - escaner.paradaDesde < 600) continue;
+    if (variacao(atual) < 14) { statusEscaner(TEXTO_ESPERANDO); continue; } // nada na frente da câmera
     escaner.ocupado = true;
-    try { await (escaner.modo === 'pagina' ? lerPagina(video, area) : lerNoEscaner(video, area)); } catch (e) { console.error(e); } finally { escaner.ocupado = false; }
+    try { await lerQuadro(video, area); } catch (e) { console.error(e); } finally { escaner.ocupado = false; }
   }
+}
+
+async function lerQuadro(video, area) {
+  const mira = $('#escMira');
+  mira.className = 'esc-mira lendo';
+  const cv = document.createElement('canvas');
+  cv.width = Math.round(area.w); cv.height = Math.round(area.h);
+  cv.getContext('2d', { willReadFrequently: true }).drawImage(video, area.x, area.y, area.w, area.h, 0, 0, cv.width, cv.height);
+  const resultados = await reconhecerImagem(cv, statusEscaner);
+  if (!escaner.ativo) return;
+  escaner.esperarTroca = true; // não lê de novo até a imagem mudar (trocar a carta ou virar a página)
+  if (!resultados.length) {
+    mira.className = 'esc-mira';
+    escaner.liberarEm = Date.now() + 1500; // tenta de novo daqui a pouco, se continuar parado
+    statusEscaner('Não achei carta. Aproxime um pouco e evite reflexo.');
+    return;
+  }
+  escaner.liberarEm = Infinity;
+  mostrarNoEscaner(resultados);
+  mira.className = resultados.some((r) => r.marcada) ? 'esc-mira ok' : 'esc-mira';
+  statusEscaner(`${resumoResultados(resultados)}. Pode passar a próxima!`);
+}
+
+// Fotos da galeria: lê cada uma com o mesmo reconhecimento da câmera
+async function escanearGaleria(arquivos) {
+  if (!arquivos.length) return;
+  if (!estado.series.length) { statusEscaner('Espere o catálogo de coleções carregar, Mestre.'); return; }
+  while (escaner.ocupado) await new Promise((ok) => setTimeout(ok, 200)); // espera a câmera terminar
+  escaner.ocupado = true;
+  const mira = $('#escMira');
+  mira.className = 'esc-mira lendo';
+  const todos = [];
+  try {
+    for (let i = 0; i < arquivos.length; i++) {
+      const prefixo = arquivos.length > 1 ? `🖼 Foto ${i + 1} de ${arquivos.length}: ` : '🖼 ';
+      const bmp = await createImageBitmap(arquivos[i]);
+      todos.push(...await reconhecerImagem(bmp, (t) => statusEscaner(prefixo + t)));
+      bmp.close?.();
+    }
+  } catch (e) {
+    console.error(e);
+    statusEscaner(`Deu erro: ${e.message}. Verifique a internet e tente de novo.`);
+  } finally {
+    escaner.ocupado = false;
+    escaner.esperarTroca = true;
+    escaner.liberarEm = Infinity;
+  }
+  mira.className = todos.some((r) => r.marcada) ? 'esc-mira ok' : 'esc-mira';
+  if (todos.length) { mostrarNoEscaner(todos); statusEscaner(`${resumoResultados(todos)}.`); }
+  else statusEscaner('Não achei carta nessa foto. Tente outra, de frente e sem reflexo.');
 }
 
 function bipe(nova = true) {
@@ -2009,87 +1837,80 @@ function bipe(nova = true) {
   } catch { /* sem som */ }
 }
 
-async function lerNoEscaner(video, area) {
-  const moldura = $('#escMoldura');
-  moldura.className = 'esc-moldura lendo';
-  statusEscaner('🔎 Lendo…');
-  const cv = document.createElement('canvas');
-  cv.width = Math.round(area.w); cv.height = Math.round(area.h);
-  cv.getContext('2d').drawImage(video, area.x, area.y, area.w, area.h, 0, 0, cv.width, cv.height);
-  const folga = cv.width * 0.05 / 1.1; // a área tem 5% de folga de cada lado em volta da moldura
-  const carta = { x: folga, y: folga * cv.height / cv.width, w: cv.width - 2 * folga, h: cv.height - 2 * folga * cv.height / cv.width };
-  const { certeza, notas } = await identificar(cv, carta, { lerTexto: async () => lerCarta(await prepararOCR(), cv) });
-  if (!escaner.ativo) return;
-  escaner.esperarTroca = true; // não lê a mesma carta de novo até a imagem mudar
-  if (!notas.length) {
-    moldura.className = 'esc-moldura';
-    escaner.liberarEm = Date.now() + 1500; // tenta de novo daqui a pouco, se a carta continuar ali
-    statusEscaner('Não consegui ler. Aproxime um pouco e evite reflexo.');
-    return;
-  }
-  escaner.liberarEm = Infinity;
-  if ($('#cfgAutoMarcar').checked && certeza) {
-    const n = notas[0];
-    moldura.className = 'esc-moldura ok';
-    registrarNoEscaner(n, notas, marcarSeNova(n.carta));
-  } else {
-    moldura.className = 'esc-moldura';
-    mostrarNoEscaner(null, notas.slice(0, 4), false);
-    statusEscaner('Fiquei em dúvida: toque na carta certa (ou passe a próxima).');
-  }
+// Painel embaixo: as cartas lidas. Marcadas em verde; as de dúvida (amarelo) abrem as opções.
+function mostrarNoEscaner(resultados) {
+  escaner.lidas += resultados.filter((r) => r.marcada && r.nova).length;
+  atualizarContador();
+  bipe(resultados.some((r) => r.marcada && r.nova));
+  escaner.resultados = resultados;
+  desenharPainelEscaner();
 }
 
-// Depois de reconhecer: conta as novas, avisa e mostra a carta
-function registrarNoEscaner(n, notas, nova) {
-  if (nova) escaner.lidas++;
-  $('#escContador').textContent = plural(escaner.lidas, 'nova', 'novas');
-  bipe(nova);
-  mostrarNoEscaner(n, notas, true, nova);
-  statusEscaner(nova ? '✓ Marcada! Pode passar a próxima.' : '👍 Você já tem esta. Pode passar a próxima.');
-}
-
-function mostrarNoEscaner(n, notas, marcada, nova = true) {
+function desenharPainelEscaner() {
   const caixa = $('#escResultado');
-  caixa.hidden = false;
+  const resultados = escaner.resultados;
+  caixa.hidden = !resultados.length;
   caixa.replaceChildren();
-  if (marcada) {
-    const img = criarImagemCarta(n.carta, { prioridade: true });
-    const txt = document.createElement('div');
-    txt.className = 'esc-texto';
-    txt.innerHTML = '<b></b><small></small>';
-    txt.querySelector('b').textContent = n.carta.name;
-    txt.querySelector('small').textContent = `#${n.carta.localId} · ${n.set?.name ?? ''} · ${nova ? 'marcada agora' : 'você já tinha'}`;
+  resultados.forEach((r, i) => {
+    const b = document.createElement('button');
+    b.className = `esc-opcao ${r.marcada ? 'ok' : 'duvida'}`;
+    const leg = document.createElement('span');
+    leg.textContent = r.marcada ? (r.nova ? '✓ nova' : '👍 tinha') : '? toque';
+    b.append(criarImagemCarta(r.notas[0].carta, { prioridade: true }), leg);
+    b.title = descreverCarta(r.notas[0]);
+    b.onclick = () => mostrarOpcoes(i);
+    caixa.appendChild(b);
+  });
+}
+
+// Opções de uma carta lida: escolher outra (se for dúvida ou se errou) ou desfazer
+function mostrarOpcoes(i) {
+  const r = escaner.resultados[i];
+  const caixa = $('#escResultado');
+  caixa.replaceChildren();
+  const voltar = document.createElement('button');
+  voltar.className = 'esc-botao';
+  voltar.textContent = '←';
+  voltar.title = 'Voltar';
+  voltar.onclick = desenharPainelEscaner;
+  caixa.appendChild(voltar);
+  if (r.marcada && r.nova) {
     const desfazer = document.createElement('button');
     desfazer.className = 'esc-botao';
     desfazer.textContent = '↶';
-    desfazer.title = nova ? 'Desfazer' : 'Era outra carta?';
+    desfazer.title = 'Desfazer (não era esta)';
     desfazer.onclick = () => {
-      if (nova) {
-        definirQtd(n.carta.id, 0, n.carta);
-        escaner.lidas = Math.max(0, escaner.lidas - 1);
-        $('#escContador').textContent = plural(escaner.lidas, 'nova', 'novas');
-      }
-      mostrarNoEscaner(null, notas.slice(0, 4), false);
-      statusEscaner(nova ? 'Desfeito. Era alguma destas?' : 'Era alguma destas?');
+      definirQtd(r.notas[0].carta.id, 0, r.notas[0].carta);
+      escaner.lidas = Math.max(0, escaner.lidas - 1);
+      atualizarContador();
+      escaner.resultados[i] = { ...r, marcada: false };
+      mostrarOpcoes(i);
     };
-    caixa.append(img, txt, desfazer);
-    return;
+    caixa.appendChild(desfazer);
   }
-  for (const x of notas) {
-    const b = document.createElement('button');
-    b.className = 'esc-opcao';
-    b.title = descreverCarta(x);
-    const leg = document.createElement('span');
-    leg.textContent = `#${x.carta.localId}`;
-    b.append(criarImagemCarta(x.carta, { prioridade: true }), leg);
-    b.onclick = () => registrarNoEscaner(x, notas, marcarSeNova(x.carta));
-    caixa.appendChild(b);
+  statusEscaner(r.marcada ? 'Era outra? Toque na certa (ou ↶ para desfazer).' : 'Qual é a sua? Toque na certa:');
+  for (const x of r.notas.slice(0, 5)) {
+    const o = document.createElement('button');
+    o.className = 'esc-opcao';
+    const l = document.createElement('span');
+    l.textContent = `#${x.carta.localId}`;
+    o.append(criarImagemCarta(x.carta, { prioridade: true }), l);
+    o.title = descreverCarta(x);
+    o.onclick = () => {
+      const nova = marcarSeNova(x.carta);
+      if (nova) escaner.lidas++;
+      atualizarContador();
+      bipe(nova);
+      escaner.resultados[i] = { notas: [x, ...r.notas.filter((y) => y !== x)], marcada: true, nova };
+      desenharPainelEscaner();
+      statusEscaner(nova ? '✓ Marcada! Pode passar a próxima.' : '👍 Você já tem esta.');
+    };
+    caixa.appendChild(o);
   }
 }
 
-$('#btnEscaner').onclick = abrirEscaner;
-$('#escModo').onclick = trocarModoEscaner;
 $('#modalEscaner').addEventListener('close', pararCamera);
+$('#escGaleria').onchange = (e) => { escanearGaleria([...e.target.files]); e.target.value = ''; };
 $('#escLuz').onclick = async () => {
   const t = escaner.stream?.getVideoTracks()[0];
   if (!t) return;
@@ -2097,19 +1918,9 @@ $('#escLuz').onclick = async () => {
   try { await t.applyConstraints({ advanced: [{ torch: escaner.luz }] }); } catch { /* sem lanterna */ }
 };
 
-function abrirFoto() {
-  const m = $('#modalFoto');
-  m.abertoEm = Date.now();
-  if (!m.open) m.showModal();
-  prepararOCR().catch(() => {}); // já vai baixando o leitor enquanto o Mestre tira a foto
-}
-['#arqFotoCamera', '#arqFotos'].forEach((sel) => {
-  $(sel).onchange = (e) => { reconhecerFotos([...e.target.files]); e.target.value = ''; };
-});
-
 // ---------- Eventos gerais ----------
 $('.marca').onclick = (e) => { e.preventDefault(); irPara(''); };
-$('#btnFoto').onclick = abrirFoto;
+$('#btnFoto').onclick = abrirEscaner;
 $('#btnConfig').onclick = abrirConfig;
 
 document.querySelectorAll('[data-fechar]').forEach((b) => (b.onclick = () => b.closest('dialog').close()));
@@ -2125,7 +1936,7 @@ $('.nav-inferior').onclick = (e) => {
   const n = b.dataset.nav;
   if (n === 'inicio') irPara('');
   else if (n === 'colecoes') ($('#lateral').classList.contains('aberta') ? fecharMenu() : abrirMenu());
-  else if (n === 'foto') abrirFoto();
+  else if (n === 'foto') abrirEscaner();
   else if (n === 'busca') { if (estado.modo === 'busca') $('#buscaCarta').focus(); else irPara('#busca'); }
   else if (n === 'config') abrirConfig();
 };
