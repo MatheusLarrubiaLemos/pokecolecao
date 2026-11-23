@@ -2,6 +2,12 @@
 
 A versão atual aparece em ⚙ Configurações, no rodapé.
 
+## v1.9.1 — Não inventa carta (23/11/2026)
+
+- **Carta virada (verso azul com a Poké Ball)** é reconhecida e pulada, em vez de virar um palpite errado.
+- Palpite fraco não aparece em lugar nenhum (câmera e galeria); o aviso diz quantas cartas ficaram sem reconhecer ("2 não reconheci — passe uma por uma").
+- Páginas com menos de 9 cartas (ou com cartas viradas) funcionam: a carta de partida é procurada na foto toda, não só no centro.
+
 ## v1.9.0 — Escâner mais esperto (23/11/2026)
 
 - As cartas escaneadas **não somem mais**: o painel de baixo acumula tudo o que foi lido na sessão (as mais novas primeiro).
