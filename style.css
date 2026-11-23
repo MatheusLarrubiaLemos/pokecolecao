@@ -482,55 +482,31 @@ input[type="search"]:focus, select:focus {
 .tipo .amostra-bola { border: 2px solid var(--contorno); background: linear-gradient(#ee1515 0 42%, var(--contorno) 42% 58%, #fff 58%); }
 .tipo.ativo { border-color: var(--destaque); background: color-mix(in srgb, var(--destaque) 12%, transparent); font-weight: 600; }
 
-/* Reconhecer por foto */
-.modal-foto { max-width: min(560px, calc(100vw - 32px)); }
-.modal-foto .botao-principal { margin: 0 !important; border: none; }
-.modal .opcao { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: .9rem; }
-.foto-resultados { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
-.foto-item { display: flex; gap: 10px; align-items: flex-start; padding: 10px; border: 1px solid var(--borda); border-radius: 14px; background: var(--painel-2); }
-.modal img.foto-mini { width: 56px; height: 78px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
-.foto-corpo { flex: 1; min-width: 0; display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
-.foto-corpo > p { margin: 0; flex-basis: 100%; }
-.foto-corpo .nome { margin: 2px 0; }
-.foto-corpo > div { flex: 1; min-width: 150px; }
-.foto-corpo .ok { color: var(--ok); }
-.modal img.foto-carta { width: 72px; height: auto; border-radius: 6px; flex-shrink: 0; }
-.foto-sub { margin-left: 18px; padding: 8px; }
-.modal .foto-sub img.foto-mini { width: 48px; height: auto; max-height: 80px; object-fit: contain; }
-.foto-nada { opacity: .65; }
-.rotulo-chips { margin: 10px 0 0; }
-.rotulo-chips small { font-size: .78rem; }
-.chips-foto { margin: 6px 0 4px; flex-wrap: wrap; }
-.chips-foto button { flex: 1 0 auto; }
-.foto-opcoes { display: grid; grid-template-columns: repeat(auto-fill, minmax(82px, 1fr)); gap: 8px; width: 100%; }
-.foto-opcao { padding: 4px; display: flex; flex-direction: column; gap: 4px; align-items: stretch; font-size: .7rem; text-align: center; }
-.foto-opcao img { width: 100%; height: auto; border-radius: 4px; aspect-ratio: 245 / 342; object-fit: cover; }
-.foto-opcao span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--sub); }
-.foto-corpo .sem-img, .foto-opcao .sem-img { width: 72px; min-height: 100px; border-radius: 6px; font-size: .65rem; }
-.foto-opcao .sem-img { width: 100%; }
-
 /* Modo escâner */
-.botao-escaner { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 100%; padding: 14px; margin: 10px 0 2px; border-radius: 16px; font-size: 1.1rem; }
-.botao-escaner small { font-weight: 400; font-size: .8rem; opacity: .95; }
-.modal-foto .ou { margin: 12px 0 0; text-align: center; }
 .escaner { width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; background: #000; color: #fff; overflow: hidden; }
 .escaner[open] { display: block; }
 .escaner::backdrop { background: #000; }
 .esc-camera { position: absolute; inset: 0; }
 .esc-camera video { width: 100%; height: 100%; object-fit: cover; display: block; }
-.esc-moldura {
-  position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%);
-  width: min(74vw, 50dvh); aspect-ratio: 63 / 88; border-radius: 18px;
-  border: 3px solid rgba(255, 255, 255, .9); box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .45);
-  transition: border-color .2s;
+.esc-modo { padding: 8px 12px; border: none; border-radius: 99px; background: rgba(0, 0, 0, .55); color: #fff; font-weight: 600; font-size: .85rem; }
+.esc-opcao.ok { border-color: #2fbf6e; }
+.esc-opcao.duvida { border-color: #ffd23f; }
+.esc-mira {
+  position: absolute; inset: calc(70px + env(safe-area-inset-top)) 5% 190px;
+  border: 3px dashed rgba(255, 255, 255, .55); border-radius: 22px;
+  transition: border-color .2s, box-shadow .2s;
 }
-.esc-moldura.lendo { border-color: #ffd23f; animation: piscar 1s ease-in-out infinite; }
-.esc-moldura.ok { border-color: #2fbf6e; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .45), 0 0 30px #2fbf6e; }
-@keyframes piscar { 50% { border-color: rgba(255, 210, 63, .4); } }
+.esc-mira.lendo { border-style: solid; border-color: #ffd23f; animation: piscar 1s ease-in-out infinite; }
+.esc-mira.ok { border-style: solid; border-color: #2fbf6e; box-shadow: 0 0 30px #2fbf6e; }
+@keyframes piscar { 50% { border-color: rgba(255, 210, 63, .35); } }
+.esc-galeria { display: inline-flex; align-items: center; gap: 4px; height: 44px; padding: 0 14px; border-radius: 99px; background: rgba(0, 0, 0, .55); color: #fff; font-weight: 600; font-size: .9rem; cursor: pointer; }
+.esc-opcao.ok { border-color: #2fbf6e; }
+.esc-opcao.duvida { border-color: #ffd23f; }
+.modal .opcao { display: flex; align-items: center; gap: 8px; margin: 14px 0 4px; font-size: .9rem; }
 .esc-topo { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 8px; padding: calc(10px + env(safe-area-inset-top)) 14px 10px; }
 .esc-contador { flex: 1; font-weight: 700; font-size: 1.1rem; text-shadow: 0 1px 4px #000; }
 .esc-botao { width: 44px; height: 44px; padding: 0; border: none; border-radius: 50%; background: rgba(0, 0, 0, .55); color: #fff; font-size: 1.1rem; flex-shrink: 0; }
-.esc-status { position: absolute; left: 16px; right: 16px; top: calc(46% + min(37vw, 25dvh) * 1.4 + 14px); margin: 0; text-align: center; font-weight: 600; text-shadow: 0 1px 4px #000; }
+.esc-status { position: absolute; left: 16px; right: 16px; bottom: calc(150px + env(safe-area-inset-bottom)); z-index: 1; margin: 0; text-align: center; font-weight: 600; text-shadow: 0 1px 4px #000; }
 .esc-resultado {
   position: absolute; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom));
   display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 18px;
@@ -709,8 +685,7 @@ button, .carta, .item-set { touch-action: manipulation; -webkit-tap-highlight-co
   .qtd button { width: 56px; height: 56px; }
   .botoes button, .botao-arquivo { flex: 1; text-align: center; padding: 12px; }
   .dica { text-align: center; font-size: .78rem; }
-  .foto-opcoes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
+  }
 @media (max-width: 360px) {
   .grade { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .total { display: none; }

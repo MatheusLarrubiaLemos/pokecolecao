@@ -42,7 +42,7 @@
     </a>
     <div class="total" id="totalGeral">0 cartas</div>
     <div class="acoes-topo">
-      <button id="btnFoto" class="icone" aria-label="Reconhecer cartas por foto" title="Reconhecer cartas por foto">📷</button>
+      <button id="btnFoto" class="icone" aria-label="Escanear cartas" title="Escanear cartas">📷</button>
       <button id="btnConfig" class="icone" aria-label="Configurações" title="Configurações">⚙</button>
     </div>
   </header>
@@ -173,7 +173,7 @@
   <nav class="nav-inferior" aria-label="Menu">
     <button data-nav="inicio"><span class="ni-icone">🏠</span>Início</button>
     <button data-nav="colecoes"><span class="ni-icone">📚</span>Coleções</button>
-    <button data-nav="foto" class="nav-foto" aria-label="Escanear cartas por foto"><span class="bola"></span>Escanear</button>
+    <button data-nav="foto" class="nav-foto" aria-label="Escanear cartas"><span class="bola"></span>Escanear</button>
     <button data-nav="busca"><span class="ni-icone">🔎</span>Buscar</button>
     <button data-nav="config"><span class="ni-icone">⚙️</span>Ajustes</button>
   </nav>
@@ -217,6 +217,7 @@
         <option value="en">Inglês</option>
       </select>
     </label>
+    <label class="opcao"><input id="cfgAutoMarcar" type="checkbox" checked> 📷 Marcar sozinho as cartas reconhecidas com certeza</label>
     <h4>💾 Backup da coleção</h4>
     <p class="sub">Sua coleção fica salva neste navegador. Exporte de vez em quando para não perder nada.</p>
     <p class="sub" id="txtUltimoBackup"></p>
@@ -232,40 +233,16 @@
     <p id="txtVersao" class="sub versao"></p>
   </dialog>
 
-  <dialog id="modalFoto" class="modal modal-foto">
-    <button class="fechar" data-fechar aria-label="Fechar">✕</button>
-    <h3>📷 Reconhecer por foto</h3>
-    <button id="btnEscaner" class="botao-principal botao-escaner">🎥 Modo escâner<small>Câmera ao vivo: vá passando as cartas, uma por uma, e eu marco sozinho</small></button>
-    <p class="sub ou">ou tire uma foto:</p>
-    <p class="sub">Fotografe a carta <b>em pé, de frente e inteira</b>, com boa luz e sem reflexo. Eu leio o nome e o número (ex: 025/198) e marco na coleção. Várias cartas de uma vez? Enquadre só as cartas, bem retas.</p>
-    <div class="botoes">
-      <label class="botao-arquivo botao-principal">📷 Tirar foto
-        <input id="arqFotoCamera" type="file" accept="image/*" capture="environment" hidden>
-      </label>
-      <label class="botao-arquivo">🖼 Escolher fotos
-        <input id="arqFotos" type="file" accept="image/*" multiple hidden>
-      </label>
-    </div>
-    <p class="sub rotulo-chips">Cartas na foto <small>(dá para fotografar uma página inteira do fichário)</small></p>
-    <div class="chips chips-foto" role="group" aria-label="Quantas cartas tem na foto">
-      <button data-por-foto="auto" class="ativo">Auto</button>
-      <button data-por-foto="1">1</button>
-      <button data-por-foto="2">2</button>
-      <button data-por-foto="4">4 (2×2)</button>
-      <button data-por-foto="9">9 (3×3)</button>
-    </div>
-    <label class="opcao"><input id="cfgAutoMarcar" type="checkbox" checked> Marcar sozinho quando tiver certeza</label>
-    <p id="fotoStatus" class="sub" aria-live="polite"></p>
-    <div id="fotoResultados" class="foto-resultados"></div>
-  </dialog>
-
-  <dialog id="modalEscaner" class="escaner" aria-label="Modo escâner">
+  <dialog id="modalEscaner" class="escaner" aria-label="Escanear cartas">
     <div class="esc-camera">
       <video id="escVideo" playsinline muted></video>
-      <div id="escMoldura" class="esc-moldura"></div>
+      <div id="escMira" class="esc-mira"></div>
     </div>
     <div class="esc-topo">
-      <span id="escContador" class="esc-contador">0 cartas</span>
+      <span id="escContador" class="esc-contador">0 novas</span>
+      <label class="esc-galeria" title="Mandar fotos da galeria">🖼 Galeria
+        <input id="escGaleria" type="file" accept="image/*" multiple hidden>
+      </label>
       <button id="escLuz" class="esc-botao" aria-label="Lanterna" hidden>💡</button>
       <button class="esc-botao" data-fechar aria-label="Fechar escâner">✕</button>
     </div>
