@@ -2,6 +2,15 @@
 
 A versão atual aparece em ⚙ Configurações, no rodapé.
 
+## v1.7.0 — Reconhece pelo desenho da carta (23/11/2026)
+
+- 📷 e 🎥 agora reconhecem as cartas **pelo desenho**, como os apps de escâner de verdade: o site compara a arte da carta com um banco de "impressões digitais" de todas as ~15.600 cartas físicas (`dados/assinaturas.txt`, baixado só quando o reconhecimento é usado). A leitura do número entra só para desempatar.
+- Funciona até com **cartas em japonês**, quando a arte é a mesma da versão internacional.
+- **Foto de página do fichário**: o site acha uma carta, anda pelos bolsos vizinhos (corrigindo a perspectiva) e descobre sozinho se é 1 carta, 2×2 ou 3×3 — sem escolher nada. Na foto real de teste: 7 de 9 marcadas sozinhas, nenhuma errada.
+- 🎥 Escâner ganhou o modo **📄 Página 3×3**: uma moldura com 9 bolsos para encaixar a página do fichário; lê as 9 de uma vez e você vira a página.
+- Saiu a opção "Cartas na foto": agora é tudo automático.
+- Ferramenta `ferramentas/gerar-assinaturas.js` para atualizar o banco quando sair coleção nova.
+
 ## v1.6.0 — Reconhecer não conta repetidas (21/11/2026)
 
 - 📷 e 🎥: se a carta reconhecida já está na coleção, só avisa "👍 Você já tem esta" (bipe mais grave) e não aumenta a quantidade.

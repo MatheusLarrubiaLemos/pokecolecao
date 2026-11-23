@@ -4,7 +4,7 @@
  */
 'use strict';
 
-const VERSAO = '1.6.0'; // atualize também o CHANGELOG.md
+const VERSAO = '1.7.0'; // atualize também o CHANGELOG.md
 const API = 'https://api.tcgdex.net/v2';
 const ASSETS = 'https://assets.tcgdex.net';
 const CHAVE_COLECAO = 'pokecolecao:colecao';
@@ -1308,55 +1308,80 @@ async function lerCarta(worker, bitmap, regiao = FOTO_INTEIRA) {
   return { textoTopo, textoInteiro, numeros };
 }
 
-// Várias cartas numa foto (ex: página de fichário): cada carta tem o número impresso embaixo
-// ("025/198"). Lê a foto inteira, acha onde estão esses números e deduz a grade (2×2, 3×3…).
-async function acharCartasNaFoto(worker, bitmap) {
-  const cv = recortar(bitmap, [0, 0, 1, 1], 2800);
-  const { data } = await worker.recognize(cv, {}, { blocks: true, text: true });
-  const pontos = [];
-  for (const bloco of data.blocks ?? []) for (const par of bloco.paragraphs ?? []) for (const linha of par.lines ?? []) {
-    if (!lerNumero(linha.text).length) continue;
-    const x = (linha.bbox.x0 + linha.bbox.x1) / 2 / cv.width, y = (linha.bbox.y0 + linha.bbox.y1) / 2 / cv.height;
-    if (!pontos.some((q) => Math.abs(q.x - x) < 0.04 && Math.abs(q.y - y) < 0.04)) pontos.push({ x, y });
+// Página de fichário (3×3) numa foto: acha a carta do MEIO (varrendo o centro da foto em vários
+// tamanhos) e deduz as outras 8 pelo passo do bolso (~5,6% maior que a carta). A perspectiva é
+// corrigida depois, na busca fina de cada carta. Devolve as 9 regiões (frações da foto) ou null.
+async function acharPagina3x3(bitmap, inicio = null) {
+  const banco = await carregarAssinaturas();
+  const escala = Math.min(1, 1000 / Math.max(bitmap.width, bitmap.height));
+  const base = document.createElement('canvas');
+  base.width = Math.round(bitmap.width * escala); base.height = Math.round(bitmap.height * escala);
+  base.getContext('2d', { willReadFrequently: true }).drawImage(bitmap, 0, 0, base.width, base.height);
+  const W = base.width, H = base.height, n = banco.ids.length, [ax, ay, aw, ah] = AREA_ARTE;
+  const janelas = [];
+  for (const wf of inicio ? [] : [0.17, 0.2, 0.23, 0.26, 0.29, 0.32]) {
+    const ch = wf * Math.min(W, H * 0.75) * 88 / 63, cw = ch * 63 / 88;
+    for (let cy = 0.3 * H; cy <= 0.7 * H; cy += 0.02 * H) for (let cx = 0.38 * W; cx <= 0.62 * W; cx += 0.02 * W) {
+      const x = cx - cw / 2, y = cy - ch / 2;
+      const h = assinaturaArte(base, x + ax * cw, y + ay * ch, aw * cw, ah * ch);
+      let menor = 99;
+      for (let i = 0; i < n; i++) {
+        if (bits(h[0] ^ banco.hashes[i * 4]) > 9) continue;
+        const d = distanciaArte(h, banco.hashes, i * 4);
+        if (d < menor) menor = d;
+      }
+      janelas.push({ d: menor, x, y, w: cw, h: ch });
+    }
+    await new Promise((ok) => setTimeout(ok, 0)); // deixa a tela respirar
   }
-  const colunas = contarFaixas(pontos.map((q) => q.x));
-  const linhas = contarFaixas(pontos.map((q) => q.y));
-  console.debug('[foto] números achados na foto inteira:', pontos, `${linhas}×${colunas}`);
-  return pontos.length >= 2 && colunas * linhas >= 2 ? dividirFoto(linhas, colunas) : [FOTO_INTEIRA];
-}
-
-// Quantas linhas/colunas de cartas: agrupa posições próximas e usa a distância entre os grupos
-// (se faltar o número de uma carta no meio, a distância denuncia a coluna que sumiu)
-function contarFaixas(valores) {
-  const v = [...valores].sort((a, b) => a - b);
-  const centros = [];
-  for (const x of v) {
-    if (centros.length && x - centros[centros.length - 1].fim < 0.12) { const c = centros[centros.length - 1]; c.fim = x; c.soma += x; c.n++; }
-    else centros.push({ fim: x, soma: x, n: 1 });
+  janelas.sort((a, b) => a.d - b.d);
+  let meio = inicio ? { d: 0, x: inicio.x * escala, y: inicio.y * escala, w: inicio.w * escala, h: inicio.h * escala } : null;
+  for (const j of inicio ? [] : janelas.slice(0, 6)) {
+    const v = await acharPorDesenho(base, j, { amplo: true });
+    if (v[0] && (!meio || v[0].dist < meio.d)) meio = { d: v[0].dist, ...v.retangulo };
   }
-  if (centros.length < 2) return 1;
-  const pos = centros.map((c) => c.soma / c.n);
-  const menor = Math.min(...pos.slice(1).map((x, i) => x - pos[i]));
-  return Math.min(4, Math.max(centros.length, Math.round(0.95 / menor)));
-}
-
-function dividirFoto(linhas, colunas) {
+  console.debug('[foto] carta achada na foto:', meio);
+  if (!meio || meio.d > 24) return null;
+  // Descobre o tamanho da grade andando a partir da carta achada (até 2 bolsos em cada direção).
+  // Cada vizinho achado corrige o passo e o tamanho do próximo (a perspectiva muda os dois).
+  const cabe = (r) => r.x > -0.15 * r.w && r.y > -0.15 * r.h && r.x + r.w < W + 0.15 * r.w && r.y + r.h < H + 0.15 * r.h;
+  // "parece carta": brilho e textura parecidos com os da carta achada (o fundo do fichário é escuro e liso)
+  const estatisticas = (r) => { const g = amostra(base, r); let m = 0; for (const v of g) m += v; m /= g.length; return { m, d: variacao(g) }; };
+  const ref = estatisticas(meio);
+  const pareceCarta = (r) => { const e = estatisticas(r); return e.d >= 0.6 * ref.d && Math.abs(e.m - ref.m) <= 0.3 * ref.m; };
+  const refinar = async (r) => {
+    if (!cabe(r)) return null;
+    const v = await acharPorDesenho(base, r, { amplo: true });
+    if (v[0] && v[0].dist <= 24) return v.retangulo;
+    return pareceCarta(r) ? r : null; // não reconheci, mas tem carta ali
+  };
+  const seguir = async (dl, dc) => {
+    const achados = [];
+    let atual = meio, passo = { x: dc * meio.w * 1.056, y: dl * meio.h * 1.057 };
+    let cresce = 1; // perspectiva: cartas mais perto da câmera aparecem maiores
+    for (let k = 0; k < 2; k++) {
+      const w = atual.w * cresce, h = atual.h * cresce;
+      const r = await refinar({ x: atual.x + passo.x * cresce - (w - atual.w) * (dc ? 0 : 0.5), y: atual.y + passo.y * cresce - (h - atual.h) * (dl ? 0 : 0.5), w, h });
+      if (!r) break;
+      cresce = Math.min(1.25, Math.max(0.8, r.h / atual.h));
+      passo = { x: r.x - atual.x, y: r.y - atual.y };
+      achados.push(r);
+      atual = r;
+    }
+    return achados;
+  };
+  const esq = await seguir(0, -1), dir = await seguir(0, 1), cima = await seguir(-1, 0), baixo = await seguir(1, 0);
+  const colunas = [...esq.reverse(), meio, ...dir].slice(0, 3); // retângulos da linha da carta achada
+  const linhas = [...cima.reverse(), meio, ...baixo].slice(0, 3); // retângulos da coluna da carta achada
+  console.debug('[foto] grade achada:', `${linhas.length}×${colunas.length}`);
   const regioes = [];
-  const folga = 0.02; // um pouquinho a mais em volta, caso a foto não esteja reta
-  for (let l = 0; l < linhas; l++) for (let c = 0; c < colunas; c++) {
-    const x = Math.max(0, c / colunas - folga), y = Math.max(0, l / linhas - folga);
-    regioes.push({ x, y, w: Math.min(1 - x, 1 / colunas + 2 * folga), h: Math.min(1 - y, 1 / linhas + 2 * folga) });
+  for (const rl of linhas) for (const rc of colunas) {
+    // posição: coluna da linha achada + deslocamento da linha (perspectiva); tamanho proporcional
+    const r = { x: rc.x + (rl.x - meio.x), y: rl.y + (rc.y - meio.y), w: rc.w * rl.w / meio.w, h: rl.h * rc.h / meio.h };
+    const x = Math.max(0, r.x / W), y = Math.max(0, r.y / H);
+    regioes.push({ x, y, w: Math.min(1 - x, r.w / W), h: Math.min(1 - y, r.h / H) });
   }
   return regioes;
-}
-
-function regioesEscolhidas(bitmap) {
-  const qtd = estado.config.cartasPorFoto;
-  if (qtd === '1') return [FOTO_INTEIRA];
-  if (qtd === '2') return bitmap.width > bitmap.height ? dividirFoto(1, 2) : dividirFoto(2, 1);
-  if (qtd === '4') return dividirFoto(2, 2);
-  if (qtd === '9') return dividirFoto(3, 3);
-  return null; // automático
 }
 
 // Miniatura de uma região (para mostrar qual carta da foto é cada resultado)
@@ -1366,6 +1391,167 @@ function miniaturaDaRegiao(bitmap, r) {
   cv.width = 160; cv.height = Math.round(160 * sh / sw);
   cv.getContext('2d').drawImage(bitmap, r.x * bitmap.width, r.y * bitmap.height, sw, sh, 0, 0, cv.width, cv.height);
   return cv.toDataURL('image/jpeg', 0.75);
+}
+
+// ---------- Impressão digital do desenho da carta ----------
+// Como os escâneres de cartas fazem: em vez de ler texto, compara o DESENHO da carta com um banco
+// de "impressões digitais" (hash perceptual) de todas as cartas, gerado antes (dados/assinaturas.txt).
+// A mesma função gera o banco e lê a foto, para os dois baterem.
+const AREA_ARTE = [0.09, 0.105, 0.82, 0.39]; // janela do desenho, em frações da carta (x, y, largura, altura)
+const COS_DCT = (() => { const t = new Float32Array(8 * 32); for (let k = 0; k < 8; k++) for (let n = 0; n < 32; n++) t[k * 32 + n] = Math.cos(Math.PI * (n + 0.5) * k / 32); return t; })();
+
+// fonte: imagem/canvas; [sx, sy, sw, sh]: retângulo da arte em pixels da fonte. Devolve 4 números de 32 bits (pHash + dHash).
+function assinaturaArte(fonte, sx, sy, sw, sh) {
+  const cv = assinaturaArte.cv ??= Object.assign(document.createElement('canvas'), { width: 32, height: 32 });
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(fonte, sx, sy, sw, sh, 0, 0, 32, 32);
+  const d = ctx.getImageData(0, 0, 32, 32).data;
+  const g = new Float32Array(1024);
+  for (let i = 0; i < 1024; i++) g[i] = d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114;
+  // pHash: DCT 32×32 só até a frequência 8 (separável), compara com a mediana
+  const linhas = new Float32Array(32 * 8);
+  for (let y = 0; y < 32; y++) for (let k = 0; k < 8; k++) { let s = 0; for (let x = 0; x < 32; x++) s += g[y * 32 + x] * COS_DCT[k * 32 + x]; linhas[y * 8 + k] = s; }
+  const coef = new Float32Array(64);
+  for (let ky = 0; ky < 8; ky++) for (let kx = 0; kx < 8; kx++) { let s = 0; for (let y = 0; y < 32; y++) s += linhas[y * 8 + kx] * COS_DCT[ky * 32 + y]; coef[ky * 8 + kx] = s; }
+  const ordenados = Array.from(coef.slice(1)).sort((a, b) => a - b);
+  const mediana = ordenados[31];
+  const h = new Uint32Array(4);
+  for (let i = 0; i < 64; i++) if (coef[i] > mediana) h[i >> 5] |= 1 << (i & 31);
+  // dHash: 9×8 (médias de blocos) comparando vizinhos
+  const m = (cx, cy) => { let s = 0; const x0 = Math.floor(cx * 32 / 9), x1 = Math.floor((cx + 1) * 32 / 9), y0 = cy * 4; for (let y = y0; y < y0 + 4; y++) for (let x = x0; x < x1; x++) s += g[y * 32 + x]; return s / ((x1 - x0) * 4); };
+  for (let y = 0, i = 0; y < 8; y++) for (let x = 0; x < 8; x++, i++) if (m(x + 1, y) > m(x, y)) h[2 + (i >> 5)] |= 1 << (i & 31);
+  return h;
+}
+const bits = (v) => { v -= (v >>> 1) & 0x55555555; v = (v & 0x33333333) + ((v >>> 2) & 0x33333333); return (((v + (v >>> 4)) & 0x0f0f0f0f) * 0x01010101) >>> 24; };
+const distanciaArte = (a, b, i = 0) => bits(a[0] ^ b[i]) + bits(a[1] ^ b[i + 1]) + bits(a[2] ^ b[i + 2]) + bits(a[3] ^ b[i + 3]);
+
+// Banco de impressões (carregado só quando o Mestre usa o reconhecimento)
+let assinaturasPromessa = null;
+function carregarAssinaturas() {
+  return assinaturasPromessa ??= fetch('dados/assinaturas.txt').then((r) => {
+    if (!r.ok) throw new Error('banco de desenhos indisponível');
+    return r.text();
+  }).then((t) => {
+    const linhas = t.split('\n').filter(Boolean);
+    const ids = new Array(linhas.length), hashes = new Uint32Array(linhas.length * 4);
+    linhas.forEach((l, i) => {
+      const [id, h] = l.split(' ');
+      ids[i] = id;
+      for (let k = 0; k < 4; k++) hashes[i * 4 + k] = parseInt(h.slice(k * 8, k * 8 + 8), 16);
+    });
+    return { ids, hashes };
+  }).catch((e) => { assinaturasPromessa = null; throw e; });
+}
+
+// Compara o desenho da carta (retângulo aproximado da carta na fonte, em pixels) com o banco.
+// A carta nunca fica perfeitamente enquadrada (perspectiva, bolso do fichário), então testa vários
+// recortes: uma busca grossa (deslocamentos e escalas) e depois uma fina em volta dos melhores.
+// O recorte que mais se parece com alguma carta do banco é o alinhamento certo.
+// Devolve as melhores [{ id, dist }] (dist de 0 a 128: quanto menor, mais parecido).
+async function acharPorDesenho(fonteOriginal, carta, { amplo = false, procurarTamanho = false } = {}) {
+  let fonte = fonteOriginal;
+  const banco = await carregarAssinaturas();
+  const n = banco.ids.length;
+  const melhor = new Map(); // índice da carta -> menor distância
+  // usa sempre um retângulo no formato exato de carta (63×88), centralizado no espaço dado
+  if (carta.w / carta.h > 63 / 88) { const w = carta.h * 63 / 88; carta = { ...carta, x: carta.x + (carta.w - w) / 2, w }; }
+  else { const h = carta.w * 88 / 63; carta = { ...carta, y: carta.y + (carta.h - h) / 2, h }; }
+  // Reduz a área em volta da carta UMA vez (carta com ~240 px): recortar da foto grande a cada teste é lento
+  const margem = procurarTamanho ? 0.65 : amplo ? 0.55 : 0.12;
+  const ex = Math.max(0, carta.x - carta.w * margem), ey = Math.max(0, carta.y - carta.h * margem);
+  const ew = Math.min(fonte.width, carta.x + carta.w * (1 + margem)) - ex, eh = Math.min(fonte.height, carta.y + carta.h * (1 + margem)) - ey;
+  const k = Math.min(1, 240 / carta.w);
+  const trabalho = document.createElement('canvas');
+  trabalho.width = Math.max(1, Math.round(ew * k)); trabalho.height = Math.max(1, Math.round(eh * k));
+  const ctxT = trabalho.getContext('2d', { willReadFrequently: true });
+  ctxT.imageSmoothingQuality = 'high';
+  ctxT.drawImage(fonte, ex, ey, ew, eh, 0, 0, trabalho.width, trabalho.height);
+  const original = carta;
+  carta = { x: (carta.x - ex) * k, y: (carta.y - ey) * k, w: carta.w * k, h: carta.h * k };
+  fonte = trabalho;
+  const W = fonte.width, H = fonte.height;
+  const [ax, ay, aw, ah] = AREA_ARTE;
+  let melhorAlinhamento = { d: 99 };
+  const testar = (dx, dy, e, p = 1) => {
+    const cw = carta.w * e * p, ch = carta.h * e;
+    const cx = carta.x + (carta.w - cw) / 2 + dx * carta.w, cy = carta.y + (carta.h - ch) / 2 + dy * carta.h;
+    const sx = cx + ax * cw, sy = cy + ay * ch, sw = aw * cw, sh = ah * ch;
+    if (sx < -2 || sy < -2 || sx + sw > W + 2 || sy + sh > H + 2) return 99;
+    const h = assinaturaArte(fonte, sx, sy, sw, sh);
+    let menor = 99;
+    for (let i = 0; i < n; i++) {
+      if (bits(h[0] ^ banco.hashes[i * 4]) > 11) continue; // filtro rápido: 32 bits mais estáveis
+      const d = distanciaArte(h, banco.hashes, i * 4);
+      if (d < menor) menor = d;
+      if (d < 46 && d < (melhor.get(i) ?? 99)) melhor.set(i, d);
+    }
+    if (menor < melhorAlinhamento.d) melhorAlinhamento = { d: menor, x: cx, y: cy, w: cw, h: ch };
+    return menor;
+  };
+  // busca grossa
+  const desl = procurarTamanho ? [-0.3, -0.24, -0.18, -0.12, -0.06, 0, 0.06, 0.12, 0.18, 0.24, 0.3]
+    : amplo ? [-0.15, -0.1, -0.05, 0, 0.05, 0.1, 0.15] : [-0.04, 0, 0.04];
+  const escalas = procurarTamanho ? [0.5, 0.6, 0.7, 0.8, 0.9, 1] : amplo ? [0.85, 0.95, 1.05, 1.18, 1.32] : [0.95, 1, 1.05];
+  amplo ||= procurarTamanho;
+  const tentativas = [];
+  const proporcoes = amplo ? [1, 1.12] : [1]; // foto inclinada "achata" a altura: carta parece mais larga
+  for (const p of proporcoes) for (const e of escalas) for (const dy of desl) for (const dx of desl) tentativas.push({ dx, dy, e, p, d: testar(dx, dy, e, p) });
+  // busca fina em volta dos 6 melhores recortes
+  if (amplo) {
+    tentativas.sort((a, b) => a.d - b.d);
+    for (const t of tentativas.slice(0, 6)) {
+      for (const de of [-0.04, 0, 0.04]) for (const fy of [-0.03, -0.015, 0, 0.015, 0.03]) for (const fx of [-0.03, -0.015, 0, 0.015, 0.03]) {
+        if (fx || fy || de) testar(t.dx + fx, t.dy + fy, t.e + de, t.p);
+      }
+    }
+  }
+  const lista = [...melhor].sort((a, b) => a[1] - b[1]).slice(0, 8).map(([i, dist]) => ({ id: banco.ids[i], dist }));
+  const m = melhorAlinhamento;
+  lista.retangulo = m.d < 99 ? { d: m.d, x: ex + m.x / k, y: ey + m.y / k, w: m.w / k, h: m.h / k } : { d: 99, ...original }; // onde a carta está de verdade
+  return lista;
+}
+
+// Régua do desenho (calibrada com fotos reais de fichário): distância ≤ 22 e folga ≥ 5 para a 2ª = certeza
+const DESENHO_CERTO = 22, DESENHO_FOLGA = 5, DESENHO_MAX = 31;
+const desenhoCerto = (v) => !!v[0] && v[0].dist <= DESENHO_CERTO && (v[1]?.dist ?? 99) - v[0].dist >= DESENHO_FOLGA;
+
+// Identifica uma carta: compara o desenho; se ficar em dúvida, lê o número/nome (OCR) e junta as pistas.
+// carta: retângulo aproximado da carta na fonte (pixels). lerTexto: função que devolve a leitura OCR (opcional).
+// Devolve { certeza, notas } — notas no mesmo formato de acharCandidatas.
+async function identificar(fonte, carta, { lerTexto = null, procurarTamanho = false } = {}) {
+  const visto = await acharPorDesenho(fonte, carta, { amplo: true, procurarTamanho });
+  const porId = new Map();
+  for (const v of visto.filter((x) => x.dist <= DESENHO_MAX)) {
+    const c = await cartaPorId(v.id);
+    if (c) porId.set(v.id, { carta: c, set: estado.infoSets.get(setDaCarta(v.id)), nome: 0, bateNumero: false, bateTotal: false, dist: v.dist, nota: 0.7 * (40 - v.dist) / 40 });
+  }
+  const ordenar = () => [...porId.values()].sort((a, b) => b.nota - a.nota || (a.dist ?? 99) - (b.dist ?? 99));
+  if (desenhoCerto(visto) && porId.has(visto[0].id)) return { certeza: true, notas: ordenar(), retangulo: visto.retangulo };
+  if (!lerTexto) return { certeza: false, notas: ordenar().slice(0, 6), retangulo: visto.retangulo };
+  // Dúvida: o número impresso separa, por exemplo, reimpressões com o mesmo desenho
+  const leitura = await lerTexto();
+  const notasTexto = leitura ? await acharCandidatas(leitura) : [];
+  for (const n of notasTexto) {
+    const ja = porId.get(n.carta.id);
+    if (ja) { ja.nota += n.nota; ja.nome = n.nome; ja.bateNumero = n.bateNumero; ja.bateTotal = n.bateTotal; }
+    else porId.set(n.carta.id, { ...n });
+  }
+  const notas = ordenar();
+  const topo = notas[0];
+  const certeza = !!topo && (
+    (topo.dist <= 28 && topo.bateNumero && topo.bateTotal) // desenho parecido + número e total batem
+    || (temCerteza(notasTexto) && notasTexto[0].carta.id === topo.carta.id));
+  return { certeza, notas: notas.slice(0, 6) };
+}
+
+// Carta (nome, número, imagem) a partir do id, pelo catálogo
+async function cartaPorId(id) {
+  if (cartasConhecidas.has(id)) return cartasConhecidas.get(id);
+  const set = await carregarSet(setDaCarta(id)).catch(() => null);
+  const c = set?.cards?.find((x) => x.id === id);
+  if (c) cartasConhecidas.set(id, c);
+  return c ?? null;
 }
 
 // Coleções físicas por total impresso (mais novas primeiro)
@@ -1532,10 +1718,18 @@ async function reconhecerFoto(arquivo, corpo) {
     aoProgredirOCR = null;
     status.textContent = '';
     bitmap = await createImageBitmap(arquivo);
-    let regioes = regioesEscolhidas(bitmap);
-    if (!regioes) {
-      escrever(corpo, '🔎 Procurando cartas na foto…');
-      regioes = await acharCartasNaFoto(worker, bitmap);
+    let regioes;
+    {
+      escrever(corpo, '🔎 Procurando as cartas na foto…');
+      // 1º: é uma carta grande sozinha? (rápido) — 2º: procura as cartas de uma página de fichário
+      const grande = cartaGrandeNaFoto(bitmap);
+      const unica = await identificar(bitmap, grande, { procurarTamanho: true });
+      const r = unica?.retangulo;
+      const sozinha = r && (r.w > 0.62 * bitmap.width || r.h > 0.62 * bitmap.height); // ocupa a foto quase toda
+      if (unica?.certeza && sozinha) { await reconhecerRegiao(worker, bitmap, FOTO_INTEIRA, corpo, false, unica); return; }
+      regioes = (unica?.certeza ? await acharPagina3x3(bitmap, r) : null) ?? (await acharPagina3x3(bitmap))
+        ?? [FOTO_INTEIRA];
+      if (regioes.length === 1 && unica?.certeza) { await reconhecerRegiao(worker, bitmap, FOTO_INTEIRA, corpo, false, unica); return; }
     }
     if (regioes.length === 1) { await reconhecerRegiao(worker, bitmap, regioes[0], corpo); return; }
 
@@ -1567,24 +1761,33 @@ async function reconhecerFoto(arquivo, corpo) {
 }
 
 // Reconhece uma carta (uma região da foto). Devolve 'marcada', 'duvida' ou 'nada'.
-async function reconhecerRegiao(worker, bitmap, regiao, corpo, parteDeVarias = false) {
-  escrever(corpo, '🔎 Lendo a carta…');
-  const leitura = await lerCarta(worker, bitmap, regiao);
-  escrever(corpo, '📚 Procurando no catálogo…');
-  const notas = await acharCandidatas(leitura);
-  console.debug('[foto]', leitura, notas);
+// A maior carta (63×88) que cabe na foto, centralizada: ponto de partida para foto de uma carta só
+function cartaGrandeNaFoto(bitmap) {
+  const h = Math.min(bitmap.height, bitmap.width * 88 / 63), w = h * 63 / 88;
+  return { x: (bitmap.width - w) / 2, y: (bitmap.height - h) / 2, w, h };
+}
+
+async function reconhecerRegiao(worker, bitmap, regiao, corpo, parteDeVarias = false, jaIdentificado = null) {
+  escrever(corpo, '🔎 Comparando o desenho…');
+  const inteira = regiao === FOTO_INTEIRA;
+  // ponto de partida: a região (carta de fichário) ou a maior carta que cabe na foto
+  const carta = inteira ? cartaGrandeNaFoto(bitmap)
+    : { x: regiao.x * bitmap.width, y: regiao.y * bitmap.height, w: regiao.w * bitmap.width, h: regiao.h * bitmap.height };
+  const { certeza, notas } = jaIdentificado ?? await identificar(bitmap, carta, {
+    procurarTamanho: inteira,
+    lerTexto: async () => { escrever(corpo, '🔎 Lendo o número da carta…'); return lerCarta(worker, bitmap, regiao); },
+  });
+  console.debug('[foto]', notas);
   if (!notas.length) {
-    const lido = leitura.numeros[0] ? ` (li o número ${leitura.numeros[0].numero}/${leitura.numeros[0].total})` : '';
     if (parteDeVarias) {
-      const quase = normalizar(leitura.textoInteiro).length < 12;
-      escrever(corpo, quase ? 'Espaço vazio ou carta ilegível.' : `Não reconheci esta carta${lido}.`);
+      escrever(corpo, 'Espaço vazio ou carta que não reconheci.');
       corpo.parentElement.classList.add('foto-nada');
     } else {
-      escrever(corpo, `Não reconheci esta carta${lido}. Tente outra foto, mais de perto e sem reflexo. Se forem várias cartas, escolha quantas em "Cartas na foto" — ou use a busca pelo nome.`);
+      escrever(corpo, 'Não reconheci esta carta. Tente outra foto, de frente, sem reflexo e com a carta ocupando boa parte da foto. Para páginas do fichário, use 🎥 Modo escâner → Página 3×3.');
     }
     return 'nada';
   }
-  if ($('#cfgAutoMarcar').checked && temCerteza(notas)) {
+  if ($('#cfgAutoMarcar').checked && certeza) {
     marcarReconhecida(corpo, { ...notas[0], todas: notas });
     return 'marcada';
   }
@@ -1595,7 +1798,7 @@ async function reconhecerRegiao(worker, bitmap, regiao, corpo, parteDeVarias = f
 // ---------- Modo escâner (câmera ao vivo) ----------
 // O Mestre vai passando as cartas na frente da câmera. Quando a imagem fica parada dentro da
 // moldura, lê a carta; se tiver certeza, marca com bipe e vibração e espera a próxima carta.
-const escaner = { stream: null, ativo: false, ocupado: false, anterior: null, paradaDesde: 0, esperarTroca: false, liberarEm: 0, lidas: 0, audio: null };
+const escaner = { modo: 'carta', stream: null, ativo: false, ocupado: false, anterior: null, paradaDesde: 0, esperarTroca: false, liberarEm: 0, lidas: 0, audio: null };
 
 function statusEscaner(texto) { $('#escStatus').textContent = texto; }
 
@@ -1631,8 +1834,117 @@ async function abrirEscaner() {
   escaner.ativo = true;
   escaner.anterior = null;
   escaner.esperarTroca = false;
-  statusEscaner('Mostre uma carta dentro da moldura e segure parada 👆');
+  statusEscaner(textoEsperando());
   lacoEscaner();
+}
+
+const textoEsperando = () => (escaner.modo === 'pagina'
+  ? 'Encaixe a página do fichário nos 9 espaços e segure parado 👆'
+  : 'Mostre uma carta dentro da moldura e segure parada 👆');
+
+function trocarModoEscaner() {
+  escaner.modo = escaner.modo === 'pagina' ? 'carta' : 'pagina';
+  const pagina = escaner.modo === 'pagina';
+  $('#escGrade').hidden = !pagina;
+  $('#escMoldura').hidden = pagina;
+  $('#escModo').textContent = pagina ? '🃏 1 carta' : '📄 Página 3×3';
+  $('#modalEscaner').classList.toggle('pagina', pagina);
+  $$('#escGrade .esc-slot').forEach((el) => { el.className = 'esc-slot'; });
+  $('#escResultado').hidden = true;
+  escaner.anterior = null;
+  escaner.esperarTroca = false;
+  statusEscaner(textoEsperando());
+}
+
+// Página 3×3: lê as 9 cartas de uma vez pelo desenho; as duvidosas também pelo número impresso
+async function lerPagina(video, area) {
+  const slots = $$('#escGrade .esc-slot');
+  statusEscaner('🔎 Lendo a página…');
+  const cv = document.createElement('canvas');
+  cv.width = Math.round(area.w); cv.height = Math.round(area.h);
+  cv.getContext('2d').drawImage(video, area.x, area.y, area.w, area.h, 0, 0, cv.width, cv.height);
+  const resultados = [];
+  const contagem = { novas: 0, tinha: 0, duvida: 0 };
+  for (let i = 0; i < slots.length; i++) {
+    if (!escaner.ativo) return;
+    const s = areaDaMoldura(video, slots[i], 0);
+    const carta = { x: s.x - area.x, y: s.y - area.y, w: s.w, h: s.h };
+    slots[i].className = 'esc-slot lendo';
+    if (variacao(amostra(cv, carta)) < 12) { slots[i].className = 'esc-slot vazio'; resultados.push(null); continue; } // bolso vazio
+    let r = await identificar(cv, carta);
+    if (!r.certeza && r.notas.length) {
+      const regiao = { x: carta.x / cv.width, y: carta.y / cv.height, w: carta.w / cv.width, h: carta.h / cv.height };
+      r = await identificar(cv, carta, { lerTexto: async () => lerCarta(await prepararOCR(), cv, regiao) });
+    }
+    if (r.certeza && $('#cfgAutoMarcar').checked) {
+      const nova = marcarSeNova(r.notas[0].carta);
+      contagem[nova ? 'novas' : 'tinha']++;
+      if (nova) escaner.lidas++;
+      slots[i].className = 'esc-slot ok';
+      resultados.push({ ...r, marcada: true, nova });
+    } else if (r.notas.length) {
+      contagem.duvida++;
+      slots[i].className = 'esc-slot duvida';
+      resultados.push({ ...r, marcada: false });
+    } else {
+      slots[i].className = 'esc-slot nada';
+      resultados.push(null);
+    }
+  }
+  escaner.esperarTroca = true; // espera virar a página
+  escaner.liberarEm = Infinity;
+  $('#escContador').textContent = plural(escaner.lidas, 'nova', 'novas');
+  bipe(contagem.novas > 0);
+  mostrarPagina(resultados);
+  const partes = [`✓ ${contagem.novas} nova${contagem.novas === 1 ? '' : 's'}`];
+  if (contagem.tinha) partes.push(`${contagem.tinha} já tinha`);
+  if (contagem.duvida) partes.push(`${contagem.duvida} para confirmar (toque nelas)`);
+  statusEscaner(`${partes.join(' · ')}. Vire a página!`);
+}
+
+// Painel com as cartas da página; as duvidosas abrem as opções
+function mostrarPagina(resultados) {
+  const caixa = $('#escResultado');
+  caixa.hidden = false;
+  caixa.replaceChildren();
+  resultados.forEach((r, i) => {
+    if (!r) return;
+    const b = document.createElement('button');
+    b.className = `esc-opcao ${r.marcada ? 'ok' : 'duvida'}`;
+    const leg = document.createElement('span');
+    leg.textContent = r.marcada ? (r.nova ? '✓ nova' : '👍 tinha') : '? toque';
+    b.append(criarImagemCarta(r.notas[0].carta, { prioridade: true }), leg);
+    b.title = descreverCarta(r.notas[0]);
+    if (!r.marcada) {
+      b.onclick = () => {
+        caixa.replaceChildren();
+        const voltar = document.createElement('button');
+        voltar.className = 'esc-botao';
+        voltar.textContent = '←';
+        voltar.onclick = () => mostrarPagina(resultados);
+        caixa.appendChild(voltar);
+        for (const x of r.notas.slice(0, 4)) {
+          const o = document.createElement('button');
+          o.className = 'esc-opcao';
+          const l = document.createElement('span');
+          l.textContent = `#${x.carta.localId}`;
+          o.append(criarImagemCarta(x.carta, { prioridade: true }), l);
+          o.title = descreverCarta(x);
+          o.onclick = () => {
+            const nova = marcarSeNova(x.carta);
+            if (nova) escaner.lidas++;
+            $('#escContador').textContent = plural(escaner.lidas, 'nova', 'novas');
+            bipe(nova);
+            resultados[i] = { notas: [x], marcada: true, nova };
+            $$('#escGrade .esc-slot')[i].className = 'esc-slot ok';
+            mostrarPagina(resultados);
+          };
+          caixa.appendChild(o);
+        }
+      };
+    }
+    caixa.appendChild(b);
+  });
 }
 
 function pararCamera() {
@@ -1642,12 +1954,12 @@ function pararCamera() {
   $('#escVideo').srcObject = null;
 }
 
-// Pedaço do vídeo que está dentro da moldura (o vídeo aparece cortado para preencher a tela)
-function areaDaMoldura(video) {
-  const rv = video.getBoundingClientRect(), rm = $('#escMoldura').getBoundingClientRect();
+// Pedaço do vídeo que está debaixo de um elemento da tela (o vídeo aparece cortado para preencher a tela)
+function areaDaMoldura(video, el = $(escaner.modo === 'pagina' ? '#escGrade' : '#escMoldura'), folgaFrac = 0.05) {
+  const rv = video.getBoundingClientRect(), rm = el.getBoundingClientRect();
   const escala = Math.max(rv.width / video.videoWidth, rv.height / video.videoHeight);
   const offX = (rv.width - video.videoWidth * escala) / 2, offY = (rv.height - video.videoHeight * escala) / 2;
-  const folga = 0.05 * rm.width;
+  const folga = folgaFrac * rm.width;
   const x = Math.max(0, (rm.left - rv.left - offX - folga) / escala), y = Math.max(0, (rm.top - rv.top - offY - folga) / escala);
   const w = Math.min(video.videoWidth - x, (rm.width + 2 * folga) / escala), h = Math.min(video.videoHeight - y, (rm.height + 2 * folga) / escala);
   return { x, y, w, h };
@@ -1678,9 +1990,9 @@ async function lacoEscaner() {
     if (mudou > 9) { escaner.paradaDesde = Date.now(); if (mudou > 18) escaner.esperarTroca = false; continue; }
     if (escaner.esperarTroca && Date.now() < escaner.liberarEm) continue;
     if (Date.now() - escaner.paradaDesde < 500) continue;
-    if (variacao(atual) < 14) { statusEscaner('Mostre uma carta dentro da moldura e segure parada 👆'); continue; } // moldura vazia
+    if (variacao(atual) < 14) { statusEscaner(textoEsperando()); continue; } // moldura vazia
     escaner.ocupado = true;
-    try { await lerNoEscaner(video, area); } catch (e) { console.error(e); } finally { escaner.ocupado = false; }
+    try { await (escaner.modo === 'pagina' ? lerPagina(video, area) : lerNoEscaner(video, area)); } catch (e) { console.error(e); } finally { escaner.ocupado = false; }
   }
 }
 
@@ -1704,9 +2016,9 @@ async function lerNoEscaner(video, area) {
   const cv = document.createElement('canvas');
   cv.width = Math.round(area.w); cv.height = Math.round(area.h);
   cv.getContext('2d').drawImage(video, area.x, area.y, area.w, area.h, 0, 0, cv.width, cv.height);
-  const worker = await prepararOCR();
-  const leitura = await lerCarta(worker, cv);
-  const notas = await acharCandidatas(leitura);
+  const folga = cv.width * 0.05 / 1.1; // a área tem 5% de folga de cada lado em volta da moldura
+  const carta = { x: folga, y: folga * cv.height / cv.width, w: cv.width - 2 * folga, h: cv.height - 2 * folga * cv.height / cv.width };
+  const { certeza, notas } = await identificar(cv, carta, { lerTexto: async () => lerCarta(await prepararOCR(), cv) });
   if (!escaner.ativo) return;
   escaner.esperarTroca = true; // não lê a mesma carta de novo até a imagem mudar
   if (!notas.length) {
@@ -1716,7 +2028,7 @@ async function lerNoEscaner(video, area) {
     return;
   }
   escaner.liberarEm = Infinity;
-  if ($('#cfgAutoMarcar').checked && temCerteza(notas)) {
+  if ($('#cfgAutoMarcar').checked && certeza) {
     const n = notas[0];
     moldura.className = 'esc-moldura ok';
     registrarNoEscaner(n, notas, marcarSeNova(n.carta));
@@ -1776,6 +2088,7 @@ function mostrarNoEscaner(n, notas, marcada, nova = true) {
 }
 
 $('#btnEscaner').onclick = abrirEscaner;
+$('#escModo').onclick = trocarModoEscaner;
 $('#modalEscaner').addEventListener('close', pararCamera);
 $('#escLuz').onclick = async () => {
   const t = escaner.stream?.getVideoTracks()[0];
@@ -1785,19 +2098,11 @@ $('#escLuz').onclick = async () => {
 };
 
 function abrirFoto() {
-  $$('[data-por-foto]').forEach((b) => b.classList.toggle('ativo', b.dataset.porFoto === (estado.config.cartasPorFoto || 'auto')));
   const m = $('#modalFoto');
   m.abertoEm = Date.now();
   if (!m.open) m.showModal();
   prepararOCR().catch(() => {}); // já vai baixando o leitor enquanto o Mestre tira a foto
 }
-$$('[data-por-foto]').forEach((b) => {
-  b.onclick = () => {
-    estado.config.cartasPorFoto = b.dataset.porFoto;
-    salvarConfig();
-    $$('[data-por-foto]').forEach((x) => x.classList.toggle('ativo', x === b));
-  };
-});
 ['#arqFotoCamera', '#arqFotos'].forEach((sel) => {
   $(sel).onchange = (e) => { reconhecerFotos([...e.target.files]); e.target.value = ''; };
 });
