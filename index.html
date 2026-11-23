@@ -17,7 +17,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icones/icone.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icones/icone-180.png">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=1.10.0">
   <script>
     // Aplica o tipo favorito e o tema antes de desenhar a página (evita piscar a cor errada)
     try {
@@ -234,25 +234,34 @@
   </dialog>
 
   <dialog id="modalEscaner" class="escaner" aria-label="Escanear cartas">
-    <div class="esc-camera">
-      <video id="escVideo" playsinline muted></video>
-      <div id="escMira" class="esc-mira"></div>
-    </div>
     <div class="esc-topo">
       <span id="escContador" class="esc-contador">0 novas</span>
       <label class="esc-galeria" title="Mandar fotos da galeria">🖼 Galeria
         <input id="escGaleria" type="file" accept="image/*" multiple hidden>
       </label>
-      <button id="escDeNovo" class="esc-botao" aria-label="Ler de novo" title="Ler de novo o que está na câmera">🔄</button>
       <button id="escLuz" class="esc-botao" aria-label="Lanterna" hidden>💡</button>
       <button class="esc-botao" data-fechar aria-label="Fechar escâner">✕</button>
     </div>
-    <p id="escStatus" class="esc-status" aria-live="polite"></p>
-    <div id="escResultado" class="esc-resultado" hidden></div>
+    <div id="escCamera" class="esc-camera">
+      <video id="escVideo" playsinline muted></video>
+      <!-- Guia de enquadramento: 9 bolsos de fichário (carta solta vai no do meio) -->
+      <div id="escGuia" class="esc-guia" aria-hidden="true">
+        <div class="esc-slot"></div><div class="esc-slot"></div><div class="esc-slot"></div>
+        <div class="esc-slot"></div><div class="esc-slot" data-meio></div><div class="esc-slot"></div>
+        <div class="esc-slot"></div><div class="esc-slot"></div><div class="esc-slot"></div>
+      </div>
+    </div>
+    <div class="esc-base">
+      <div class="esc-linha">
+        <button id="escDeNovo" class="esc-botao esc-denovo" aria-label="Ler de novo" title="Ler de novo o que está na câmera">🔄</button>
+        <p id="escStatus" class="esc-status" aria-live="polite"></p>
+      </div>
+      <div id="escResultado" class="esc-resultado" hidden></div>
+    </div>
   </dialog>
 
   <div id="aviso" class="aviso" hidden></div>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=1.10.0"></script>
 </body>
 </html>
