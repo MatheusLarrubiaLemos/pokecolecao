@@ -4,7 +4,7 @@
  */
 'use strict';
 
-const VERSAO = '1.8.0'; // atualize também o CHANGELOG.md
+const VERSAO = '1.9.0'; // atualize também o CHANGELOG.md
 const API = 'https://api.tcgdex.net/v2';
 const ASSETS = 'https://assets.tcgdex.net';
 const CHAVE_COLECAO = 'pokecolecao:colecao';
@@ -1343,7 +1343,7 @@ async function acharPagina3x3(bitmap, inicio = null) {
     if (v[0] && (!meio || v[0].dist < meio.d)) meio = { d: v[0].dist, ...v.retangulo };
   }
   console.debug('[foto] carta achada na foto:', meio);
-  if (!meio || meio.d > 24) return null;
+  if (!meio || meio.d > 20) return null; // só parte de uma carta reconhecida com folga
   // Descobre o tamanho da grade andando a partir da carta achada (até 2 bolsos em cada direção).
   // Cada vizinho achado corrige o passo e o tamanho do próximo (a perspectiva muda os dois).
   const cabe = (r) => r.x > -0.15 * r.w && r.y > -0.15 * r.h && r.x + r.w < W + 0.15 * r.w && r.y + r.h < H + 0.15 * r.h;
@@ -1689,6 +1689,7 @@ function resumoResultados(resultados) {
 // Um botão só: a câmera fica aberta e o Mestre aponta para uma carta ou para uma página do fichário.
 // Quando a imagem fica parada, lê tudo o que aparece. Também dá para mandar fotos da galeria.
 const escaner = { stream: null, ativo: false, ocupado: false, anterior: null, paradaDesde: 0, esperarTroca: false, liberarEm: 0, lidas: 0, audio: null, resultados: [] };
+const NITIDEZ_MINIMA = 30; // abaixo disso a imagem está tremida ou desfocada (nítida dá ~100; borrada leve ~42)
 const TEXTO_ESPERANDO = 'Aponte para uma carta ou para uma página do fichário e segure parado 👆';
 
 function statusEscaner(texto) { $('#escStatus').textContent = texto; }
@@ -1754,6 +1755,21 @@ function amostra(fonte, a) {
   return g;
 }
 const diferenca = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]); return s / a.length; };
+// Nitidez: diferença de cada pixel para os vizinhos (imagem tremida/desfocada dá número baixo)
+function nitidez(fonte, a = { x: 0, y: 0, w: fonte.width, h: fonte.height }) {
+  const L = 200, A = Math.max(1, Math.round(L * a.h / a.w));
+  const cv = nitidez.cv ??= document.createElement('canvas');
+  cv.width = L; cv.height = A;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(fonte, a.x, a.y, a.w, a.h, 0, 0, L, A);
+  const d = ctx.getImageData(0, 0, L, A).data;
+  const g = (x, y) => { const i = (y * L + x) * 4; return d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11; };
+  // usa as bordas mais fortes (percentil 90): fundo liso (mesa, fichário) não conta como "borrado"
+  const v = [];
+  for (let y = 1; y < A - 1; y += 2) for (let x = 1; x < L - 1; x += 2) v.push(Math.abs(4 * g(x, y) - g(x - 1, y) - g(x + 1, y) - g(x, y - 1) - g(x, y + 1)));
+  v.sort((p, q) => p - q);
+  return v[Math.floor(v.length * 0.9)] ?? 0;
+}
 function variacao(g) { let m = 0; for (const v of g) m += v; m /= g.length; let s = 0; for (const v of g) s += (v - m) ** 2; return Math.sqrt(s / g.length); }
 
 async function lacoEscaner() {
@@ -1769,6 +1785,7 @@ async function lacoEscaner() {
     if (escaner.esperarTroca && Date.now() < escaner.liberarEm) continue;
     if (Date.now() - escaner.paradaDesde < 600) continue;
     if (variacao(atual) < 14) { statusEscaner(TEXTO_ESPERANDO); continue; } // nada na frente da câmera
+    if (nitidez(video, area) < NITIDEZ_MINIMA) { statusEscaner('📷 Segure firme para focar (ou afaste um pouco o celular)'); continue; } // tremida/desfocada
     escaner.ocupado = true;
     try { await lerQuadro(video, area); } catch (e) { console.error(e); } finally { escaner.ocupado = false; }
   }
@@ -1780,13 +1797,14 @@ async function lerQuadro(video, area) {
   const cv = document.createElement('canvas');
   cv.width = Math.round(area.w); cv.height = Math.round(area.h);
   cv.getContext('2d', { willReadFrequently: true }).drawImage(video, area.x, area.y, area.w, area.h, 0, 0, cv.width, cv.height);
-  const resultados = await reconhecerImagem(cv, statusEscaner);
+  // ao vivo, palpite fraco (desenho pouco parecido) não aparece: é melhor pedir para enquadrar de novo
+  const resultados = (await reconhecerImagem(cv, statusEscaner)).filter((r) => r.marcada || (r.notas[0]?.dist ?? 99) <= 24);
   if (!escaner.ativo) return;
   escaner.esperarTroca = true; // não lê de novo até a imagem mudar (trocar a carta ou virar a página)
   if (!resultados.length) {
     mira.className = 'esc-mira';
     escaner.liberarEm = Date.now() + 1500; // tenta de novo daqui a pouco, se continuar parado
-    statusEscaner('Não achei carta. Aproxime um pouco e evite reflexo.');
+    statusEscaner('Não reconheci. Enquadre a carta (ou a página inteira) de frente, sem reflexo, e segure firme.');
     return;
   }
   escaner.liberarEm = Infinity;
@@ -1842,7 +1860,7 @@ function mostrarNoEscaner(resultados) {
   escaner.lidas += resultados.filter((r) => r.marcada && r.nova).length;
   atualizarContador();
   bipe(resultados.some((r) => r.marcada && r.nova));
-  escaner.resultados = resultados;
+  escaner.resultados = [...resultados, ...escaner.resultados]; // acumula a sessão toda (mais novas primeiro)
   desenharPainelEscaner();
 }
 
@@ -1874,21 +1892,23 @@ function mostrarOpcoes(i) {
   voltar.title = 'Voltar';
   voltar.onclick = desenharPainelEscaner;
   caixa.appendChild(voltar);
-  if (r.marcada && r.nova) {
-    const desfazer = document.createElement('button');
-    desfazer.className = 'esc-botao';
-    desfazer.textContent = '↶';
-    desfazer.title = 'Desfazer (não era esta)';
-    desfazer.onclick = () => {
+  // ✕: não é nenhuma destas — tira da lista (e desmarca, se tinha marcado agora)
+  const nenhuma = document.createElement('button');
+  nenhuma.className = 'esc-nenhuma';
+  nenhuma.innerHTML = '✕<span>Nenhuma</span>';
+  nenhuma.title = 'Não é nenhuma destas: tirar da lista';
+  nenhuma.onclick = () => {
+    if (r.marcada && r.nova) {
       definirQtd(r.notas[0].carta.id, 0, r.notas[0].carta);
       escaner.lidas = Math.max(0, escaner.lidas - 1);
       atualizarContador();
-      escaner.resultados[i] = { ...r, marcada: false };
-      mostrarOpcoes(i);
-    };
-    caixa.appendChild(desfazer);
-  }
-  statusEscaner(r.marcada ? 'Era outra? Toque na certa (ou ↶ para desfazer).' : 'Qual é a sua? Toque na certa:');
+    }
+    escaner.resultados.splice(i, 1);
+    desenharPainelEscaner();
+    statusEscaner('Tirei da lista. Pode passar a próxima!');
+  };
+  caixa.appendChild(nenhuma);
+  statusEscaner(r.marcada ? 'Era outra? Toque na certa — ou ✕ se não for nenhuma.' : 'Qual é a sua? Toque na certa — ou ✕ se não for nenhuma.');
   for (const x of r.notas.slice(0, 5)) {
     const o = document.createElement('button');
     o.className = 'esc-opcao';
@@ -1910,6 +1930,14 @@ function mostrarOpcoes(i) {
 }
 
 $('#modalEscaner').addEventListener('close', pararCamera);
+// 🔄 Ler de novo: esquece a última leitura e lê o que está na câmera assim que a imagem ficar parada
+$('#escDeNovo').onclick = () => {
+  if (!escaner.ativo) { statusEscaner('A câmera não está aberta. Use 🖼 Galeria para mandar fotos.'); return; }
+  escaner.esperarTroca = false;
+  escaner.liberarEm = 0;
+  escaner.paradaDesde = Date.now() - 600;
+  statusEscaner(escaner.ocupado ? '🔄 Já estou lendo… espera um pouquinho.' : '🔄 Lendo de novo… segure parado.');
+};
 $('#escGaleria').onchange = (e) => { escanearGaleria([...e.target.files]); e.target.value = ''; };
 $('#escLuz').onclick = async () => {
   const t = escaner.stream?.getVideoTracks()[0];

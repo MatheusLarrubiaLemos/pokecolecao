@@ -490,6 +490,8 @@ input[type="search"]:focus, select:focus {
 .esc-camera video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .esc-modo { padding: 8px 12px; border: none; border-radius: 99px; background: rgba(0, 0, 0, .55); color: #fff; font-weight: 600; font-size: .85rem; }
 .esc-opcao.ok { border-color: #2fbf6e; }
+.esc-nenhuma { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-width: 64px; align-self: stretch; padding: 4px 8px; border: 2px solid rgba(255, 90, 90, .7); border-radius: 10px; background: rgba(255, 60, 60, .15); color: #fff; font-size: 1.3rem; flex-shrink: 0; }
+.esc-nenhuma span { font-size: .7rem; }
 .esc-opcao.duvida { border-color: #ffd23f; }
 .esc-mira {
   position: absolute; inset: calc(70px + env(safe-area-inset-top)) 5% 190px;

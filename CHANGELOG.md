@@ -2,6 +2,15 @@
 
 A versão atual aparece em ⚙ Configurações, no rodapé.
 
+## v1.9.0 — Escâner mais esperto (23/11/2026)
+
+- As cartas escaneadas **não somem mais**: o painel de baixo acumula tudo o que foi lido na sessão (as mais novas primeiro).
+- Botão **✕ Nenhuma** nas opções: tira da lista a carta errada (e desmarca, se tinha marcado).
+- Botão **🔄 Ler de novo** no topo da câmera.
+- **Detector de foco**: com a imagem tremida ou desfocada, o escâner pede para segurar firme / afastar, em vez de ler errado.
+- Uma carta por vez é o normal: só lê várias quando há várias cartas juntas na frente da câmera (régua mais exigente para achar página).
+- Ao vivo, palpite fraco não aparece mais (pede para enquadrar de novo).
+
 ## v1.8.0 — Um botão só: Escanear (23/11/2026)
 
 - **Escanear** abre direto a câmera — sem janela intermediária, sem escolher modo. Aponte para uma carta solta ou para uma página inteira do fichário: o site descobre sozinho o que é e lê tudo o que aparece.
