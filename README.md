@@ -24,12 +24,13 @@ Site simples para controlar a sua coleção de cartas Pokémon TCG.
 
 - Toque em **Escanear** (a Poké Ball da barra de baixo, ou 📷 no topo do PC): a câmera abre.
 - Aponte para **uma carta solta** ou para **uma página inteira do fichário** e segure parado: o site descobre sozinho o que é, reconhece as cartas e marca as que tiver certeza (com bipe). Troque a carta ou vire a página e continue.
-- O **guia** na tela ajuda a mirar. Carta solta vai no espaço do meio; página do fichário, encaixe nos 9 espaços. Depois da leitura, cada espaço fica:
+- O **guia** na tela ajuda a mirar. Carta solta vai no espaço do meio, ou de perto, enchendo o guia todo: aí ela conta como uma carta só. Página do fichário, encaixe nos 9 espaços. Depois da leitura, cada espaço fica:
   - verde: marcada;
   - amarelo: para confirmar;
   - cinza: carta virada.
 - Quer mandar fotos prontas? Dentro da câmera, toque em **🖼 Galeria** (dá para escolher várias).
 - Cartas que você já tem não aumentam a quantidade. O painel de baixo guarda tudo o que foi lido; as de dúvida aparecem em amarelo: toque e escolha a certa, ou **✕ Nenhuma** para tirar da lista. **🔄** (embaixo, à esquerda) lê de novo. Se o site não achar nada parecido, ele não sugere carta nenhuma.
+- **Cartas gêmeas** (o mesmo desenho em mais de uma coleção): o site escolhe a versão pelo número impresso ou pelas outras cartas da foto e da sua coleção. Na dúvida, ela aparece em amarelo com as versões para você tocar na certa.
 - Dica: se ficar pedindo para focar, **afaste um pouco** o celular — de perto demais a câmera não foca.
 - O reconhecimento compara o **desenho** da carta com um banco de todas as cartas (`dados/assinaturas.txt`) — funciona até com cartas em japonês de arte igual. Tudo acontece no aparelho. Quando sair coleção nova, atualize o banco com `node ferramentas/gerar-assinaturas.js`.
 
