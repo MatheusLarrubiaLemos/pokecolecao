@@ -4,7 +4,7 @@
  */
 'use strict';
 
-const VERSAO = '1.10.0'; // atualize também o CHANGELOG.md
+const VERSAO = '1.11.0'; // atualize também o CHANGELOG.md
 const API = 'https://api.tcgdex.net/v2';
 const ASSETS = 'https://assets.tcgdex.net';
 const CHAVE_COLECAO = 'pokecolecao:colecao';
@@ -1438,7 +1438,7 @@ function carregarAssinaturas() {
       ids[i] = id;
       for (let k = 0; k < 4; k++) hashes[i * 4 + k] = parseInt(h.slice(k * 8, k * 8 + 8), 16);
     });
-    return { ids, hashes };
+    return { ids, hashes, indice: new Map(ids.map((id, i) => [id, i])) };
   }).catch((e) => { assinaturasPromessa = null; throw e; });
 }
 
@@ -1512,22 +1512,39 @@ async function acharPorDesenho(fonteOriginal, carta, { amplo = false, procurarTa
 
 // Régua do desenho (calibrada com fotos reais de fichário): distância ≤ 22 e folga ≥ 5 para a 2ª = certeza
 const DESENHO_CERTO = 22, DESENHO_FOLGA = 5, DESENHO_MAX = 31;
-const desenhoCerto = (v) => !!v[0] && v[0].dist <= DESENHO_CERTO && (v[1]?.dist ?? 99) - v[0].dist >= DESENHO_FOLGA;
+
+// Gêmeas: o MESMO desenho em mais de uma carta (reimpressão em outra coleção, como o Gastly de Fogo
+// Fantasmagórico e o de Heróis Excelsos). O desenho não separa uma da outra, então elas contam juntas
+// na folga; quem escolhe a versão é o número impresso ou as outras cartas (da foto e da coleção).
+const GEMEAS_MAX = 6; // diferença máxima (bits) entre as impressões de duas cartas com o mesmo desenho
+function gemeasDoTopo(visto, banco) {
+  const topo = visto[0];
+  if (!topo || topo.id === 'verso') return [];
+  const i = banco.indice.get(topo.id) * 4, h = banco.hashes.subarray(i, i + 4);
+  return visto.filter((v) => v.id !== 'verso' && (v.id === topo.id || distanciaArte(h, banco.hashes, banco.indice.get(v.id) * 4) <= GEMEAS_MAX)).map((v) => v.id);
+}
 
 // Identifica uma carta: compara o desenho; se ficar em dúvida, lê o número/nome (OCR) e junta as pistas.
 // carta: retângulo aproximado da carta na fonte (pixels). lerTexto: função que devolve a leitura OCR (opcional).
 // Devolve { certeza, notas } — notas no mesmo formato de acharCandidatas.
-async function identificar(fonte, carta, { lerTexto = null, procurarTamanho = false } = {}) {
-  const visto = await acharPorDesenho(fonte, carta, { amplo: true, procurarTamanho });
-  if (visto[0]?.id === 'verso') return { certeza: false, notas: [], verso: true, retangulo: visto.retangulo }; // carta virada
+// visto: resultado de uma busca anterior do desenho (para não refazer a busca quando só falta ler o texto).
+async function identificar(fonte, carta, { lerTexto = null, procurarTamanho = false, visto = null } = {}) {
+  visto ??= await acharPorDesenho(fonte, carta, { amplo: true, procurarTamanho });
+  const base = { retangulo: visto.retangulo, visto };
+  if (visto[0]?.id === 'verso') return { ...base, certeza: false, notas: [], verso: true }; // carta virada
+  // folga contada contra a 1ª carta de desenho DIFERENTE (as gêmeas empatam sempre)
+  const gemeas = gemeasDoTopo(visto, await carregarAssinaturas());
+  const outra = visto.find((v) => v.id !== 'verso' && !gemeas.includes(v.id));
+  const grupoCerto = !!visto[0] && visto[0].dist <= DESENHO_CERTO && (outra?.dist ?? 99) - visto[0].dist >= DESENHO_FOLGA;
+  const extra = gemeas.length > 1 ? { gemeas, grupoCerto } : {};
   const porId = new Map();
   for (const v of visto.filter((x) => x.dist <= DESENHO_MAX && x.id !== 'verso')) {
     const c = await cartaPorId(v.id);
     if (c) porId.set(v.id, { carta: c, set: estado.infoSets.get(setDaCarta(v.id)), nome: 0, bateNumero: false, bateTotal: false, dist: v.dist, nota: 0.7 * (40 - v.dist) / 40 });
   }
   const ordenar = () => [...porId.values()].sort((a, b) => b.nota - a.nota || (a.dist ?? 99) - (b.dist ?? 99));
-  if (desenhoCerto(visto) && porId.has(visto[0].id)) return { certeza: true, notas: ordenar(), retangulo: visto.retangulo };
-  if (!lerTexto) return { certeza: false, notas: ordenar().slice(0, 6), retangulo: visto.retangulo };
+  if (grupoCerto && gemeas.length === 1 && porId.has(visto[0].id)) return { ...base, certeza: true, notas: ordenar() };
+  if (!lerTexto) return { ...base, ...extra, certeza: false, notas: ordenar().slice(0, 6) };
   // Dúvida: o número impresso separa, por exemplo, reimpressões com o mesmo desenho
   const leitura = await lerTexto();
   const notasTexto = leitura ? await acharCandidatas(leitura) : [];
@@ -1541,7 +1558,7 @@ async function identificar(fonte, carta, { lerTexto = null, procurarTamanho = fa
   const certeza = !!topo && (
     (topo.dist <= 28 && topo.bateNumero && topo.bateTotal) // desenho parecido + número e total batem
     || (temCerteza(notasTexto) && notasTexto[0].carta.id === topo.carta.id));
-  return { certeza, notas: notas.slice(0, 6) };
+  return { ...base, ...extra, certeza, notas: notas.slice(0, 6) };
 }
 
 // Carta (nome, número, imagem) a partir do id, pelo catálogo
@@ -1643,10 +1660,32 @@ const PALPITE_MAX = 22; // acima disso o desenho é parecido demais com várias 
 // Palpite que vale mostrar: desenho parecido E com uma opção na frente das outras
 // (palpite "inventado" costuma ter várias cartas quase empatadas)
 function palpiteBom(r) {
-  const [a, b] = r.notas;
+  const a = r.notas[0];
   if (!a) return false;
   if (a.bateNumero && a.bateTotal && (a.dist ?? 99) <= 28) return true; // o número impresso confirma
+  const b = r.notas.find((n) => n !== a && !r.gemeas?.includes(n.carta.id)); // gêmeas não contam como rival
   return (a.dist ?? 99) <= PALPITE_MAX && (b?.dist ?? 99) - a.dist >= 4;
+}
+
+// Pontos de cada coleção para escolher entre gêmeas: cartas certas da mesma foto (3 cada) e cartas
+// que o Mestre já tem (1 cada)
+function pontosDasColecoes(idsNaFoto = []) {
+  const pontos = new Map();
+  const somar = (s, n) => pontos.set(s, (pontos.get(s) ?? 0) + n);
+  for (const id of idsNaFoto) somar(setDaCarta(id), 3);
+  for (const [id, c] of Object.entries(estado.colecao.cartas)) somar(c.set ?? setDaCarta(id), 1);
+  return pontos;
+}
+// Gêmeas: põe na frente a versão da coleção com mais pontos. Só dá certeza (marca sozinho) se o desenho
+// for certo, a escolhida tiver 3+ pontos e as outras nenhum; senão fica para o Mestre confirmar.
+function escolherGemea(res, pontos) {
+  if (!(res.gemeas?.length > 1) || res.certeza) return res;
+  const ponto = (n) => pontos.get(setDaCarta(n.carta.id)) ?? 0;
+  const gemeas = res.notas.filter((n) => res.gemeas.includes(n.carta.id)).sort((a, b) => ponto(b) - ponto(a));
+  if (!gemeas.length) return res;
+  const [melhor, ...resto] = gemeas;
+  const certeza = !!res.grupoCerto && ponto(melhor) >= 3 && resto.every((n) => ponto(n) === 0);
+  return { ...res, certeza, notas: [melhor, ...resto, ...res.notas.filter((n) => !res.gemeas.includes(n.carta.id))] };
 }
 const autoMarcar = () => estado.config.autoMarcar !== false;
 
@@ -1662,24 +1701,30 @@ function registrarResultado(r) {
 async function reconhecerImagem(fonte, aoAvisar = () => {}) {
   aoAvisar('🔎 Procurando as cartas…');
   const ocr = async (regiao) => lerCarta(await prepararOCR(), fonte, regiao);
-  const unica = await identificar(fonte, cartaGrandeNaFoto(fonte), { procurarTamanho: true });
+  const grande = cartaGrandeNaFoto(fonte);
+  const unica = await identificar(fonte, grande, { procurarTamanho: true });
   const r = unica.retangulo;
   const fracao = (q) => ({ x: q.x / fonte.width, y: q.y / fonte.height, w: q.w / fonte.width, h: q.h / fonte.height });
   const sozinha = r && r.d < 99 && (r.w > 0.62 * fonte.width || r.h > 0.62 * fonte.height); // ocupa a imagem quase toda
   if (unica.verso && sozinha) return Object.assign([], { versos: [fracao(r)], semReconhecer: 0 }); // uma carta virada
-  const regioes = unica.certeza && sozinha ? null
-    : (unica.certeza ? await acharPagina3x3(fonte, r) : null) ?? await acharPagina3x3(fonte);
-  if (!regioes) {
-    // uma carta solta: se o desenho deixou dúvida, lê o número para desempatar
-    let res = unica;
+  // desenho reconhecido: uma carta, ou um grupo de gêmeas (mesmo desenho em mais de uma coleção)
+  const unicaBoa = unica.certeza || !!unica.grupoCerto;
+  // de perto, a carta que enche a imagem conta como UMA: não procura página dentro dela
+  const regioes = unicaBoa && sozinha ? null
+    : (unicaBoa ? await acharPagina3x3(fonte, r) : null) ?? await acharPagina3x3(fonte);
+  // uma carta solta: gêmeas pelas cartas da coleção; se ainda ficar dúvida, lê o número para desempatar
+  const cartaSolta = async () => {
+    let res = escolherGemea(unica, pontosDasColecoes());
     if (!res.certeza && res.notas.length) {
       aoAvisar('🔎 Lendo o número da carta…');
-      res = await identificar(fonte, cartaGrandeNaFoto(fonte), { procurarTamanho: true, lerTexto: () => ocr(FOTO_INTEIRA) });
+      const lida = await identificar(fonte, grande, { procurarTamanho: true, visto: unica.visto, lerTexto: () => ocr(FOTO_INTEIRA) });
+      res = lida.certeza ? lida : escolherGemea(lida, pontosDasColecoes());
     }
     const ok = res.notas.length && (res.certeza || palpiteBom(res));
     return Object.assign(ok ? [{ ...registrarResultado(res), regiao: r && r.d < 99 ? fracao(r) : null }] : [], { versos: [], semReconhecer: ok || !res.notas.length ? 0 : 1 });
-  }
-  const resultados = [], versos = [];
+  };
+  if (!regioes) return cartaSolta();
+  const lidas = [], versos = [];
   for (let i = 0; i < regioes.length; i++) {
     aoAvisar(regioes.length > 1 ? `🔎 Lendo a carta ${i + 1} de ${regioes.length}…` : '🔎 Lendo a carta…');
     const reg = regioes[i];
@@ -1687,9 +1732,29 @@ async function reconhecerImagem(fonte, aoAvisar = () => {}) {
     if (variacao(amostra(fonte, carta)) < 12) continue; // bolso vazio
     let res = await identificar(fonte, carta);
     if (res.verso) { versos.push(reg); continue; } // carta virada: pula
-    if (!res.certeza && res.notas.length) res = await identificar(fonte, carta, { lerTexto: () => ocr(reg) });
-    if (res.notas.length) resultados.push({ ...registrarResultado(res), regiao: reg });
+    const leu = !res.certeza && !res.grupoCerto && res.notas.length > 0; // gêmeas: primeiro tenta pelas outras cartas
+    if (leu) res = await identificar(fonte, carta, { visto: res.visto, lerTexto: () => ocr(reg) });
+    if (res.notas.length) lidas.push({ res, reg, carta, leu });
   }
+  // Gêmeas: escolhe a versão pelas cartas certas desta foto e pelas da coleção; se não der, pelo número
+  const pontos = pontosDasColecoes(lidas.filter((x) => x.res.certeza).map((x) => x.res.notas[0].carta.id));
+  for (const x of lidas) {
+    if (!x.res.gemeas || x.res.certeza) continue;
+    x.res = escolherGemea(x.res, pontos);
+    if (!x.res.certeza && !x.leu) {
+      const lida = await identificar(fonte, x.carta, { visto: x.res.visto, lerTexto: () => ocr(x.reg) });
+      x.res = lida.certeza ? lida : escolherGemea(lida, pontos);
+    }
+  }
+  // Página de verdade tem pelo menos 2 cartas confirmadas (ou versos). Com menos, era uma carta só
+  // (de perto, a "página" achada dentro dela é ilusão): fica só com o que tem certeza, sem dividir.
+  const confirmadas = lidas.filter((x) => x.res.certeza || palpiteBom(x.res)).length + versos.length;
+  if (regioes.length > 1 && confirmadas < 2) {
+    const certas = lidas.filter((x) => x.res.certeza);
+    if (!certas.length) return cartaSolta();
+    return Object.assign(certas.map((x) => ({ ...registrarResultado(x.res), regiao: x.reg })), { versos: [], semReconhecer: 0 });
+  }
+  const resultados = lidas.map((x) => ({ ...registrarResultado(x.res), regiao: x.reg }));
   // palpite fraco (desenho pouco parecido) não aparece: melhor não mostrar do que "inventar" carta
   const bons = resultados.filter((x) => x.marcada || palpiteBom(x));
   bons.semReconhecer = resultados.length - bons.length; // cartas que vi mas não reconheci
@@ -1715,7 +1780,7 @@ function resumoResultados(resultados, semReconhecer = resultados.semReconhecer ?
 // Quando a imagem fica parada, lê tudo o que aparece. Também dá para mandar fotos da galeria.
 const escaner = { stream: null, ativo: false, ocupado: false, anterior: null, paradaDesde: 0, esperarTroca: false, liberarEm: 0, lidas: 0, audio: null, resultados: [] };
 const NITIDEZ_MINIMA = 30; // abaixo disso a imagem está tremida ou desfocada (nítida dá ~100; borrada leve ~42)
-const TEXTO_ESPERANDO = 'Carta solta: no espaço do meio. Página do fichário: nos 9 espaços. Segure parado 👆';
+const TEXTO_ESPERANDO = 'Uma carta: no espaço do meio ou de perto, enchendo o guia. Página do fichário: nos 9 espaços. Segure parado 👆';
 
 function statusEscaner(texto) { $('#escStatus').textContent = texto; }
 function atualizarContador() { $('#escContador').textContent = plural(escaner.lidas, 'nova', 'novas'); }
@@ -1798,11 +1863,15 @@ function espacoDoGuia(regiao) {
   return Math.min(2, Math.floor((cy - g.y) / g.h * 3)) * 3 + Math.min(2, Math.floor((cx - g.x) / g.w * 3));
 }
 function estadoGuia(classe) { $('#escGuia').className = `esc-guia ${classe}`.trim(); }
-function limparGuia() { estadoGuia(''); $$('#escGuia .esc-slot').forEach((el) => { el.className = 'esc-slot'; }); }
+function limparGuia() { estadoGuia(''); $('#escGuia').removeAttribute('data-inteira'); $$('#escGuia .esc-slot').forEach((el) => { el.className = 'esc-slot'; }); }
 // Pinta os espaços: verde = marcada, amarelo = dúvida, cinza = verso
 function pintarGuia(resultados, versos = [], { somar = false } = {}) {
-  const espacos = $$('#escGuia .esc-slot');
-  if (!somar) espacos.forEach((el) => { el.className = 'esc-slot'; });
+  const guia = $('#escGuia'), espacos = $$('#escGuia .esc-slot');
+  if (!somar) { espacos.forEach((el) => { el.className = 'esc-slot'; }); guia.removeAttribute('data-inteira'); }
+  // carta de perto (mais alta que 2 espaços): o guia inteiro vira um espaço só, com a cor do resultado
+  const g = escaner.guia;
+  const deperto = g && [...resultados.map((r) => [r.regiao, r.marcada ? 'ok' : 'duvida']), ...versos.map((v) => [v, 'verso'])].find(([q]) => q && q.h > 0.6 * g.h);
+  if (deperto) { guia.dataset.inteira = deperto[1]; return; }
   for (const v of versos) { const i = espacoDoGuia(v); if (i >= 0) espacos[i].className = 'esc-slot verso'; }
   for (const r of resultados) {
     const i = espacoDoGuia(r.regiao);
@@ -2014,13 +2083,23 @@ function mostrarOpcoes(i) {
     statusEscaner('Tirei da lista. Pode passar a próxima!');
   };
   caixa.appendChild(nenhuma);
-  statusEscaner(r.marcada ? 'Era outra? Toque na certa — ou ✕ se não for nenhuma.' : 'Qual é a sua? Toque na certa — ou ✕ se não for nenhuma.');
-  for (const x of r.notas.slice(0, 5)) {
+  const opcoes = r.notas.slice(0, 5);
+  // gêmeas (mesmo desenho, coleções diferentes): mostra a coleção embaixo para separar uma da outra
+  const repetida = (x) => opcoes.some((y) => y !== x && y.carta.name === x.carta.name);
+  statusEscaner(r.gemeas?.length > 1 && !r.marcada ? 'Mesmo desenho em mais de uma coleção: toque na sua (veja o número no canto de baixo da carta) — ou ✕ se não for nenhuma.'
+    : r.marcada ? 'Era outra? Toque na certa — ou ✕ se não for nenhuma.' : 'Qual é a sua? Toque na certa — ou ✕ se não for nenhuma.');
+  for (const x of opcoes) {
     const o = document.createElement('button');
     o.className = 'esc-opcao';
     const l = document.createElement('span');
     l.textContent = `#${x.carta.localId}`;
     o.append(criarImagemCarta(x.carta, { prioridade: true }), l);
+    if (repetida(x)) {
+      const c = document.createElement('span');
+      c.className = 'esc-colecao';
+      c.textContent = estado.infoSets.get(setDaCarta(x.carta.id))?.name ?? setDaCarta(x.carta.id);
+      o.append(c);
+    }
     o.title = descreverCarta(x);
     o.onclick = () => {
       const nova = marcarSeNova(x.carta);

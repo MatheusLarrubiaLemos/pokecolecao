@@ -2,6 +2,17 @@
 
 A versão atual aparece em ⚙ Configurações, no rodapé.
 
+## v1.11.0 — Cartas gêmeas e carta de perto (24/11/2026)
+
+- **Cartas com o mesmo desenho** (reimpressões em outra coleção, como o Gastly e o Haunter de Fogo Fantasmagórico e de Heróis Excelsos). Antes o site via o empate e não dizia nada. Agora ele reconhece o desenho e escolhe a versão:
+  - pelo número impresso;
+  - ou pelas outras cartas: as da mesma foto e as que você já tem.
+
+  Se não der para saber, a carta aparece em amarelo com as versões, para você tocar na certa. Cerca de 360 cartas do banco têm uma gêmea assim.
+- **Carta de perto conta como uma só**: quando a carta enche a câmera, o site não divide mais em várias, nem sugere cartas que não são. O guia inteiro fica verde (ou amarelo) como um espaço só.
+- **Página só vale com pelo menos 2 cartas confirmadas** (ou versos). Se só uma bate, fica só ela, sem "3 não reconheci" inventados.
+- Mais rápido quando precisa ler o número da carta: a busca pelo desenho não é refeita.
+
 ## v1.10.0 — Câmera sem zoom e guia de enquadramento (23/11/2026)
 
 - **Sem o zoom**: a câmera mostra a imagem inteira, no formato 4:3 do sensor. Antes as bordas eram cortadas e parecia zoom. O site também pede o zoom mínimo e o foco automático contínuo quando o celular deixa.
