@@ -2,6 +2,12 @@
 
 A versão atual aparece em ⚙ Configurações, no rodapé.
 
+## v1.11.1 — Imagens que voltam sozinhas (28/11/2026)
+
+- **Servidor de imagens fora do ar**: quando o servidor de imagens do TCGdex cai (a API continua no ar), as cartas aparecem como o verso azul com o nome e o número. Agora o site avisa que é o servidor, e as cartas continuam sendo marcadas normalmente.
+- **As imagens voltam sozinhas**: o site tenta de novo de tempos em tempos (e quando a internet ou a aba voltam). Quando o servidor responde, as imagens entram no lugar do verso sem recarregar a página, e aparece o aviso "as imagens das cartas voltaram".
+- Os avisos agora aparecem também por cima do escâner e das outras janelas, e usam a largura da tela em vez de ficarem espremidos.
+
 ## v1.11.0 — Cartas gêmeas e carta de perto (24/11/2026)
 
 - **Cartas com o mesmo desenho** (reimpressões em outra coleção, como o Gastly e o Haunter de Fogo Fantasmagórico e de Heróis Excelsos). Antes o site via o empate e não dizia nada. Agora ele reconhece o desenho e escolhe a versão:

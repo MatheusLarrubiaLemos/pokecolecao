@@ -4,7 +4,7 @@
  */
 'use strict';
 
-const VERSAO = '1.11.0'; // atualize também o CHANGELOG.md
+const VERSAO = '1.11.1'; // atualize também o CHANGELOG.md
 const API = 'https://api.tcgdex.net/v2';
 const ASSETS = 'https://assets.tcgdex.net';
 const CHAVE_COLECAO = 'pokecolecao:colecao';
@@ -99,6 +99,9 @@ function salvarConfig() { salvarJSON(CHAVE_CONFIG, estado.config); }
 
 function avisar(msg, ms = 2600) {
   const el = $('#aviso');
+  // com uma janela aberta (escâner, carta, ⚙), o aviso vai para dentro dela: senão fica escondido atrás
+  const pai = [...document.querySelectorAll('dialog[open]')].pop() ?? document.body;
+  if (el.parentElement !== pai) pai.append(el);
   el.textContent = msg;
   el.hidden = false;
   el.style.animation = 'none'; void el.offsetWidth; el.style.animation = ''; // reinicia a animação
@@ -280,21 +283,114 @@ function urlImagem(carta, qualidade = 'low') {
   return `${base}/${qualidade}.webp`;
 }
 
-// Se a imagem falhar, tenta a versão em inglês; se nem assim, mostra um verso estilizado com o nome.
-function prepararImagem(img, carta) {
+// Mesma imagem na versão em inglês (null se já é a inglesa ou não é do TCGdex)
+function urlEmIngles(src) {
+  const url = new URL(src, location.href);
+  const partes = url.pathname.split('/');
+  if (url.host !== 'assets.tcgdex.net' || !partes[1] || partes[1] === 'en') return null;
+  partes[1] = 'en';
+  url.pathname = partes.join('/');
+  return url.href;
+}
+
+// Se a imagem falhar, tenta a versão em inglês; se nem assim, mostra um verso estilizado com o nome
+// (e tenta de novo mais tarde: às vezes é o servidor de imagens que caiu).
+function prepararImagem(img, carta, opcoes = {}) {
+  img.onload = imagemCarregou;
   img.onerror = () => {
-    const url = new URL(img.src, location.href);
-    const partes = url.pathname.split('/');
-    if (url.host === 'assets.tcgdex.net' && partes[1] && partes[1] !== 'en') {
-      partes[1] = 'en';
-      url.pathname = partes.join('/');
-      img.src = url.href;
-    } else {
-      img.onerror = null;
-      img.replaceWith(criarSemImagem(carta));
-    }
+    const en = urlEmIngles(img.src);
+    if (en) { img.src = en; return; }
+    img.onerror = null;
+    const lugar = criarSemImagem(carta);
+    img.replaceWith(lugar);
+    imagemFalhou(lugar, carta, opcoes);
   };
 }
+
+// ---------- Servidor de imagens fora do ar ----------
+// O servidor de imagens do TCGdex (assets.tcgdex.net) às vezes cai inteiro, mesmo com a API no ar.
+// As cartas continuam sendo marcadas; as imagens que faltaram são buscadas de novo de tempos em tempos
+// (e quando a internet ou a aba voltam) e entram no lugar do verso estilizado sem recarregar.
+const imagensFora = { falhasSeguidas: 0, avisado: false, pendentes: new Set(), timer: 0, espera: 15000, tentando: false, ultimaTentativa: 0 };
+const ESPERA_IMAGENS_MAX = 5 * 60 * 1000;
+
+function imagemCarregou() {
+  imagensFora.falhasSeguidas = 0;
+  // uma imagem chegou: talvez o servidor tenha voltado (ou veio do cache — por isso no máximo a cada 10 s)
+  if (imagensFora.pendentes.size && Date.now() - imagensFora.ultimaTentativa > 10000) tentarImagensDeNovo();
+}
+
+function imagemFalhou(lugar, carta, opcoes) {
+  imagensFora.pendentes.add({ lugar, carta, opcoes });
+  if (++imagensFora.falhasSeguidas >= 3 && !imagensFora.avisado) {
+    imagensFora.avisado = true;
+    avisar('🖼 O servidor de imagens do TCGdex está fora do ar. Pode continuar marcando: as imagens voltam sozinhas.', 8000);
+  }
+  agendarImagensDeNovo();
+}
+
+function agendarImagensDeNovo() {
+  if (imagensFora.timer || !imagensFora.pendentes.size) return;
+  imagensFora.timer = setTimeout(tentarImagensDeNovo, imagensFora.espera);
+}
+
+// Carrega uma imagem fora da tela; devolve a URL que funcionou (a original ou a inglesa) ou null
+function testarImagem(src) {
+  if (!src) return Promise.resolve(null);
+  return new Promise((pronto) => {
+    const t = new Image();
+    t.onload = () => pronto(t.src);
+    t.onerror = () => {
+      const en = urlEmIngles(t.src);
+      if (en) t.src = en; else pronto(null);
+    };
+    t.src = src;
+  });
+}
+
+async function tentarImagensDeNovo() {
+  clearTimeout(imagensFora.timer);
+  imagensFora.timer = 0;
+  if (imagensFora.tentando) return;
+  for (const p of imagensFora.pendentes) if (!p.lugar.isConnected) imagensFora.pendentes.delete(p); // já saiu da tela
+  if (!imagensFora.pendentes.size) return;
+  imagensFora.tentando = true;
+  imagensFora.ultimaTentativa = Date.now();
+  try {
+    const trocar = (p, src) => {
+      imagensFora.pendentes.delete(p);
+      if (!src || !p.lugar.isConnected) return; // com o servidor no ar e ainda falhando: essa imagem não existe
+      const img = criarImagemCarta(p.carta, p.opcoes);
+      img.src = src;
+      p.lugar.replaceWith(img);
+    };
+    // primeiro umas poucas, para não martelar um servidor que ainda está fora
+    const fila = [...imagensFora.pendentes];
+    const amostra = fila.slice(0, 3);
+    const urls = await Promise.all(amostra.map((p) => testarImagem(urlImagem(p.carta, p.opcoes.qualidade))));
+    if (!urls.some(Boolean)) {
+      // nenhuma veio: espera mais da próxima vez, e começa por outras (estas podem ser imagens que não existem)
+      for (const p of amostra) { imagensFora.pendentes.delete(p); imagensFora.pendentes.add(p); }
+      imagensFora.espera = Math.min(imagensFora.espera * 2, ESPERA_IMAGENS_MAX);
+      return;
+    }
+    // voltou!
+    imagensFora.espera = 15000;
+    imagensFora.falhasSeguidas = 0;
+    if (imagensFora.avisado) { imagensFora.avisado = false; avisar('🖼 As imagens das cartas voltaram!'); }
+    amostra.forEach((p, i) => trocar(p, urls[i]));
+    for (let i = amostra.length; i < fila.length; i += 6) {
+      const lote = fila.slice(i, i + 6).filter((p) => p.lugar.isConnected);
+      const r = await Promise.all(lote.map((p) => testarImagem(urlImagem(p.carta, p.opcoes.qualidade))));
+      lote.forEach((p, j) => trocar(p, r[j]));
+    }
+  } finally {
+    imagensFora.tentando = false;
+    agendarImagensDeNovo(); // as que falharam enquanto tentava
+  }
+}
+addEventListener('online', () => tentarImagensDeNovo());
+document.addEventListener('visibilitychange', () => { if (!document.hidden) tentarImagensDeNovo(); });
 
 function criarSemImagem(carta) {
   const d = document.createElement('div');
@@ -315,7 +411,7 @@ function criarImagemCarta(carta, { qualidade = 'low', prioridade = false } = {})
   img.decoding = 'async';
   if (prioridade) img.fetchPriority = 'high'; // as primeiras da tela chegam antes
   else img.loading = 'lazy';
-  prepararImagem(img, carta);
+  prepararImagem(img, carta, { qualidade, prioridade });
   img.src = src;
   return img;
 }
