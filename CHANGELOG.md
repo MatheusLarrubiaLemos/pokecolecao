@@ -2,6 +2,19 @@
 
 A versão atual aparece em ⚙ Configurações, no rodapé.
 
+## v1.12.0 — Escâner: carta solta depois da página (28/11/2026)
+
+- **Carta solta depois de uma página**: chegando devagar da página do fichário para uma carta só, o escâner não percebia a troca. Ficava preso na página anterior, mostrando os 9 espaços dela, e nunca lia a carta nova. Agora ele compara a imagem parada com a da última leitura e, se a cena mudou, lê de novo do zero.
+- **Nome confirma o desenho**: com a foto inclinada ou com reflexo no bolso, o desenho às vezes põe a carta certa em 1º lugar, mas sem folga, e ela ficava em "?". Agora, se o nome lido na carta for o dessa 1ª carta (e não o de outra parecida), ela é marcada. O número pequeno o leitor quase nunca consegue ler na foto; o nome, sim. Exemplo: Milcery 043/094 de Fogo Fantasmagórico.
+- Carta "para confirmar" lida de novo não aparece mais como "Não reconheci".
+- **Página mais rápida**: na página, o leitor de texto só roda nas cartas em que o desenho chegou perto. Nas outras ele não ajudava e era o que deixava o "Lendo a carta 1 de 9…" demorado.
+
+## v1.11.1 — Imagens que voltam sozinhas (28/11/2026)
+
+- **Servidor de imagens fora do ar**: quando o servidor de imagens do TCGdex cai (a API continua no ar), as cartas aparecem como o verso azul com o nome e o número. Agora o site avisa que é o servidor, e as cartas continuam sendo marcadas normalmente.
+- **As imagens voltam sozinhas**: o site tenta de novo de tempos em tempos (e quando a internet ou a aba voltam). Quando o servidor responde, as imagens entram no lugar do verso sem recarregar a página, e aparece o aviso "as imagens das cartas voltaram".
+- Os avisos agora aparecem também por cima do escâner e das outras janelas, e usam a largura da tela em vez de ficarem espremidos.
+
 ## v1.11.0 — Cartas gêmeas e carta de perto (24/11/2026)
 
 - **Cartas com o mesmo desenho** (reimpressões em outra coleção, como o Gastly e o Haunter de Fogo Fantasmagórico e de Heróis Excelsos). Antes o site via o empate e não dizia nada. Agora ele reconhece o desenho e escolhe a versão:

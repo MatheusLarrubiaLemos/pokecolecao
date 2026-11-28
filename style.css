@@ -535,11 +535,12 @@ input[type="search"]:focus, select:focus {
 /* Avisos, véu, botão topo, confete */
 .aviso {
   position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 50;
-  max-width: calc(100vw - 32px); padding: 11px 20px; border-radius: 99px;
+  width: max-content; max-width: calc(100vw - 32px); padding: 11px 20px; border-radius: 24px;
   background: var(--texto); color: var(--fundo);
   box-shadow: var(--sombra-forte); text-align: center; font-weight: 500;
   animation: aparecer .25s ease-out;
 }
+.escaner .aviso { top: calc(64px + env(safe-area-inset-top)); bottom: auto; background: #fff; color: #1d2030; }
 .veu { position: fixed; inset: 0; z-index: 25; background: rgba(10, 12, 20, .5); }
 .veu[hidden] { display: none; }
 .btn-topo {
