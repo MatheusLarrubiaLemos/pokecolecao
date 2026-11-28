@@ -4,7 +4,7 @@
  */
 'use strict';
 
-const VERSAO = '1.11.1'; // atualize também o CHANGELOG.md
+const VERSAO = '1.12.0'; // atualize também o CHANGELOG.md
 const API = 'https://api.tcgdex.net/v2';
 const ASSETS = 'https://assets.tcgdex.net';
 const CHAVE_COLECAO = 'pokecolecao:colecao';
@@ -1608,6 +1608,9 @@ async function acharPorDesenho(fonteOriginal, carta, { amplo = false, procurarTa
 
 // Régua do desenho (calibrada com fotos reais de fichário): distância ≤ 22 e folga ≥ 5 para a 2ª = certeza
 const DESENHO_CERTO = 22, DESENHO_FOLGA = 5, DESENHO_MAX = 31;
+// Sem folga, o 1º do desenho até esta distância vira certeza se o nome lido (OCR) for o dele.
+// Acima disso o OCR quase nunca ajuda (o número borrado ele não lê): na página, nem tenta (é o que demora).
+const DESENHO_NOME = 28;
 
 // Gêmeas: o MESMO desenho em mais de uma carta (reimpressão em outra coleção, como o Gastly de Fogo
 // Fantasmagórico e o de Heróis Excelsos). O desenho não separa uma da outra, então elas contam juntas
@@ -1649,10 +1652,18 @@ async function identificar(fonte, carta, { lerTexto = null, procurarTamanho = fa
     if (ja) { ja.nota += n.nota; ja.nome = n.nome; ja.bateNumero = n.bateNumero; ja.bateTotal = n.bateTotal; }
     else porId.set(n.carta.id, { ...n });
   }
+  // O desenho põe uma carta na frente, mas sem folga (foto inclinada, bolso com reflexo)? Se o nome lido é o
+  // dela — e não o de outra carta que o desenho achou parecida —, as duas pistas juntas dão certeza.
+  // (O número pequeno e borrado o OCR quase nunca lê; o nome, grande, ele lê bem.)
+  const doTopo = visto[0] && porId.get(visto[0].id);
+  const nomeConfirma = !!doTopo && doTopo.dist <= DESENHO_NOME && doTopo.nome >= 0.85
+    && ![...porId.values()].some((n) => n.dist != null && !gemeas.includes(n.carta.id) && n.nome >= 0.6);
+  if (nomeConfirma && gemeas.length > 1) extra.grupoCerto = true; // gêmeas: a versão sai pelo número ou pela coleção
   const notas = ordenar();
   const topo = notas[0];
   const certeza = !!topo && (
     (topo.dist <= 28 && topo.bateNumero && topo.bateTotal) // desenho parecido + número e total batem
+    || (nomeConfirma && gemeas.length <= 1 && topo === doTopo)
     || (temCerteza(notasTexto) && notasTexto[0].carta.id === topo.carta.id));
   return { ...base, ...extra, certeza, notas: notas.slice(0, 6) };
 }
@@ -1828,7 +1839,8 @@ async function reconhecerImagem(fonte, aoAvisar = () => {}) {
     if (variacao(amostra(fonte, carta)) < 12) continue; // bolso vazio
     let res = await identificar(fonte, carta);
     if (res.verso) { versos.push(reg); continue; } // carta virada: pula
-    const leu = !res.certeza && !res.grupoCerto && res.notas.length > 0; // gêmeas: primeiro tenta pelas outras cartas
+    // gêmeas: primeiro tenta pelas outras cartas; desenho longe demais: ler o texto só atrasaria
+    const leu = !res.certeza && !res.grupoCerto && res.notas.length > 0 && res.notas[0].dist <= DESENHO_NOME;
     if (leu) res = await identificar(fonte, carta, { visto: res.visto, lerTexto: () => ocr(reg) });
     if (res.notas.length) lidas.push({ res, reg, carta, leu });
   }
@@ -1874,7 +1886,7 @@ function resumoResultados(resultados, semReconhecer = resultados.semReconhecer ?
 // ---------- Escâner (câmera ao vivo + galeria) ----------
 // Um botão só: a câmera fica aberta e o Mestre aponta para uma carta ou para uma página do fichário.
 // Quando a imagem fica parada, lê tudo o que aparece. Também dá para mandar fotos da galeria.
-const escaner = { stream: null, ativo: false, ocupado: false, anterior: null, paradaDesde: 0, esperarTroca: false, liberarEm: 0, lidas: 0, audio: null, resultados: [] };
+const escaner = { stream: null, ativo: false, ocupado: false, anterior: null, lido: null, paradaDesde: 0, esperarTroca: false, liberarEm: 0, lidas: 0, audio: null, resultados: [] };
 const NITIDEZ_MINIMA = 30; // abaixo disso a imagem está tremida ou desfocada (nítida dá ~100; borrada leve ~42)
 const TEXTO_ESPERANDO = 'Uma carta: no espaço do meio ou de perto, enchendo o guia. Página do fichário: nos 9 espaços. Segure parado 👆';
 
@@ -1920,6 +1932,7 @@ async function abrirEscaner() {
   posicionarGuia();
   escaner.ativo = true;
   escaner.anterior = null;
+  escaner.lido = null;
   escaner.esperarTroca = false;
   statusEscaner(TEXTO_ESPERANDO);
   lacoEscaner();
@@ -2003,6 +2016,11 @@ function nitidez(fonte, a = { x: 0, y: 0, w: fonte.width, h: fonte.height }) {
 }
 function variacao(g) { let m = 0; for (const v of g) m += v; m /= g.length; let s = 0; for (const v of g) s += (v - m) ** 2; return Math.sqrt(s / g.length); }
 
+// Diferença (0 a 255, média por ponto da miniatura) entre a imagem parada agora e a da última leitura
+// a partir da qual é outra cena: outra carta ou outra página. Mão tremendo na mesma cena fica bem abaixo.
+const MUDOU_CENA = 14;
+function novaCena() { escaner.esperarTroca = false; escaner.tentativas = 0; escaner.lido = null; limparGuia(); }
+
 async function lacoEscaner() {
   const video = $('#escVideo');
   while (escaner.ativo) {
@@ -2014,9 +2032,12 @@ async function lacoEscaner() {
     escaner.anterior = atual;
     if (mudou > 8) {
       escaner.paradaDesde = Date.now();
-      if (mudou > 16) { escaner.esperarTroca = false; escaner.tentativas = 0; limparGuia(); }
+      if (mudou > 16) novaCena();
       continue;
     }
+    // Parou: compara com o quadro da última leitura. Chegando devagar (da página para uma carta solta,
+    // por exemplo) nenhum quadro dá um salto grande de um para o outro, mas a cena já é outra.
+    if (escaner.lido && diferenca(atual, escaner.lido) > MUDOU_CENA) novaCena();
     if (escaner.esperarTroca && Date.now() < escaner.liberarEm) continue;
     if (Date.now() - escaner.paradaDesde < 600) continue;
     if (variacao(atual) < 14) { statusEscaner(TEXTO_ESPERANDO); continue; } // nada na frente da câmera
@@ -2033,6 +2054,7 @@ async function lerQuadro(video, area) {
   const cv = document.createElement('canvas');
   cv.width = Math.round(area.w); cv.height = Math.round(area.h);
   cv.getContext('2d', { willReadFrequently: true }).drawImage(video, area.x, area.y, area.w, area.h, 0, 0, cv.width, cv.height);
+  escaner.lido = amostra(cv, { x: 0, y: 0, w: cv.width, h: cv.height }); // para saber depois se a cena mudou
   const resultados = await reconhecerImagem(cv, statusEscaner);
   if (!escaner.ativo) return;
   escaner.esperarTroca = true; // não lê de novo até a imagem mudar (trocar a carta ou virar a página)
@@ -2046,7 +2068,12 @@ async function lerQuadro(video, area) {
     const id = r.notas[0]?.carta.id;
     if (!id || c.ids.has(id)) continue;
     if (r.marcada) { c.ids.add(id); c[entraram.includes(r) && r.nova ? 'novas' : 'tinha']++; }
-    else if (entraram.includes(r)) { c.ids.add(id); c.duvida++; }
+    else {
+      // dúvida que já estava no painel (lida de novo): conta como dúvida, ou como "já tinha" se o Mestre já confirmou
+      const noPainel = escaner.resultados.find((x) => x.notas[0]?.carta.id === id);
+      c.ids.add(id);
+      c[noPainel?.marcada ? 'tinha' : 'duvida']++;
+    }
   }
   c.viradas = Math.max(c.viradas, resultados.versos?.length ?? 0);
   // Sobrou carta sem reconhecer e a imagem continua parada? Lê de novo sozinho (até 2 vezes a mais):
