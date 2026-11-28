@@ -4,7 +4,7 @@
  */
 'use strict';
 
-const VERSAO = '1.12.0'; // atualize também o CHANGELOG.md
+const VERSAO = '1.13.0'; // atualize também o CHANGELOG.md
 const API = 'https://api.tcgdex.net/v2';
 const ASSETS = 'https://assets.tcgdex.net';
 const CHAVE_COLECAO = 'pokecolecao:colecao';
@@ -241,27 +241,26 @@ function carregarSeries() {
 }
 
 // Carrega uma coleção. O que faltar em português é completado com o catálogo em inglês
-// (os IDs das cartas são os mesmos): coleções antigas inteiras e imagens que só existem em inglês.
+// (os IDs das cartas são os mesmos): coleções antigas inteiras, imagens que só existem em inglês e cartas
+// que o catálogo em português ainda não tem (ex.: das 112 promos MEP, só 80 estão em pt) — essas entram
+// com o nome em inglês, na ordem da coleção.
 async function carregarSet(setId) {
   const caminho = `/sets/${encodeURIComponent(setId)}`;
   const set = await api(caminho);
   const cartas = set.cards ?? [];
-  if (estado.config.idioma === 'en' || (cartas.length && cartas.every((c) => c.image))) return { ...set, cards: cartas };
+  if (estado.config.idioma === 'en') return { ...set, cards: cartas };
   const en = await api(caminho, { idioma: 'en' }).catch(() => null);
   if (!en) return { ...set, cards: cartas };
   const cartasEn = en.cards ?? [];
-  if (!cartas.length) {
-    return { ...set, logo: set.logo ?? en.logo, emIngles: cartasEn.length > 0, cards: cartasEn.map((c) => (c.image ? c : { ...c, semImagem: true })) };
-  }
-  const imagemEn = new Map(cartasEn.map((c) => [c.id, c.image]));
-  return {
-    ...set,
-    cards: cartas.map((c) => {
-      if (c.image) return c;
-      const img = imagemEn.get(c.id);
-      return img ? { ...c, image: img } : { ...c, semImagem: true };
-    }),
-  };
+  const semImagem = (c) => (c.image ? c : { ...c, semImagem: true });
+  if (!cartas.length) return { ...set, logo: set.logo ?? en.logo, emIngles: cartasEn.length > 0, cards: cartasEn.map(semImagem) };
+  const pt = new Map(cartas.map((c) => [c.id, c]));
+  const doEn = new Map(cartasEn.map((c) => [c.id, c]));
+  const completar = (c) => (c.image ? c : semImagem({ ...c, image: doEn.get(c.id)?.image }));
+  const todas = [...cartasEn.map((c) => (pt.has(c.id) ? completar(pt.get(c.id)) : semImagem(c))), ...cartas.filter((c) => !doEn.has(c.id)).map(completar)];
+  const info = estado.infoSets.get(setId);
+  if (info?.cardCount && todas.length > (info.cardCount.total ?? 0)) info.cardCount = { ...info.cardCount, total: todas.length }; // a lista de coleções conta certo
+  return { ...set, cards: todas };
 }
 
 async function carregarDetalhe(id) {
