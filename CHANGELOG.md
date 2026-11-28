@@ -2,6 +2,21 @@
 
 A versão atual aparece em ⚙ Configurações, no rodapé.
 
+## v1.13.0 — Promos MEP, energias e mais 650 cartas no reconhecimento (28/11/2026)
+
+- **653 cartas novas no banco de desenhos**: o TCGdex não tem imagem delas, então o escâner não as reconhecia. Agora as imagens vêm do pokemontcg.io e do Limitless. Entraram:
+  - as promos MEP (como o Mega Dragonite ex 091 e o Slowpoke 086);
+  - as energias básicas das coleções de energia SV e ME;
+  - as promos SVP, SWSH e SM;
+  - o Cofre Brilhante, a Galeria do Treinador, a Galeria Galar e as Lendas Brilhantes/Majestade dos Dragões.
+
+  No teste com as fotos do Mestre, o Dragonite e o Slowpoke passaram a ser marcados com certeza. Na página de energias, as cartas erradas (um Electrode e uma Melony no lugar de energias) sumiram.
+- **Cartas que faltam no catálogo em português**: das 112 promos MEP, o TCGdex só tem 80 em português. As outras agora aparecem na coleção com o nome em inglês e podem ser marcadas.
+- Gerador do banco (`ferramentas/gerar-assinaturas.js`):
+  - busca imagens de outras fontes para as cartas que o TCGdex não tem;
+  - ganhou `--so-faltando`, que só acrescenta o que falta no banco;
+  - tenta de novo quando a API falha, para nenhuma coleção sumir do banco.
+
 ## v1.12.0 — Escâner: carta solta depois da página (28/11/2026)
 
 - **Carta solta depois de uma página**: chegando devagar da página do fichário para uma carta só, o escâner não percebia a troca. Ficava preso na página anterior, mostrando os 9 espaços dela, e nunca lia a carta nova. Agora ele compara a imagem parada com a da última leitura e, se a cena mudou, lê de novo do zero.
